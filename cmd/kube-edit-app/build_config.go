@@ -28,6 +28,8 @@ type editorBuildContext struct {
 	VarsSources        []string `yaml:"vars_sources"`
 	DecryptSecured     bool     `yaml:"decrypt_secured"`
 	ReleaseManifest    string   `yaml:"release_manifest"`
+	ReleaseManifests   []string `yaml:"release_manifests"`
+	ReleaseID          string   `yaml:"release_id"`
 	ImageOverrides     []string `yaml:"images"`
 	ImagePolicy        string   `yaml:"image_policy"`
 	ImageReference     string   `yaml:"image_reference"`
@@ -97,6 +99,11 @@ func (configured editorBuildContext) options(base buildapp.Options, configDir st
 	opts.VarsSources = append([]string(nil), configured.VarsSources...)
 	opts.DecryptSecured = configured.DecryptSecured
 	opts.ReleaseManifest = resolveBuildConfigPath(configDir, configured.ReleaseManifest)
+	opts.ReleaseManifests = nil
+	for _, path := range configured.ReleaseManifests {
+		opts.ReleaseManifests = append(opts.ReleaseManifests, resolveBuildConfigPath(configDir, path))
+	}
+	opts.ReleaseID = configured.ReleaseID
 	opts.ImageOverrides = append([]string(nil), configured.ImageOverrides...)
 	if configured.ImagePolicy != "" {
 		opts.ImagePolicy = configured.ImagePolicy

@@ -57,6 +57,8 @@ type Options struct {
 	LegacyApplyEnv                 bool
 	HelmEscapeAssets               bool
 	ReleaseManifest                string
+	ReleaseManifests               []string
+	ReleaseID                      string
 	CustomerReleaseID              string
 	ReleaseContextName             string
 	ReleaseIDEnvName               string
@@ -679,19 +681,12 @@ func Build(opts Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	releaseID := ""
-	if strings.TrimSpace(opts.ReleaseManifest) != "" {
-		manifest, err := loadReleaseManifest(opts.ReleaseManifest)
-		if err != nil {
-			return Result{}, err
-		}
-		releaseID = strings.TrimSpace(manifest.ReleaseID)
-		if err := validateReleaseLabelValue("release manifest ID", releaseID); err != nil {
-			return Result{}, err
-		}
+	releaseID, err := resolveReleaseID(opts)
+	if err != nil {
+		return Result{}, err
 	}
 	if opts.CustomerReleaseID != "" && releaseID == "" {
-		return Result{}, errors.New("customer release ID requires a release manifest with release_id")
+		return Result{}, errors.New("customer release ID requires --release-id or a release manifest with release_id")
 	}
 	var releaseContext *releaseContextSpec
 	if releaseID != "" {
@@ -1516,22 +1511,15 @@ func loadBuildVars(envDir string, opts Options) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(opts.ReleaseManifest) != "" {
-		manifest, err := loadReleaseManifest(opts.ReleaseManifest)
-		if err != nil {
-			return nil, err
+	releaseID, err := resolveReleaseID(opts)
+	if err != nil {
+		return nil, err
+	}
+	if releaseID != "" {
+		if current := strings.TrimSpace(vars["RELEASE_ID"]); current != "" && current != releaseID && strings.TrimSpace(opts.ReleaseID) == "" {
+			return nil, fmt.Errorf("release manifest release_id %q conflicts with build variable RELEASE_ID %q", releaseID, current)
 		}
-		releaseID := strings.TrimSpace(manifest.ReleaseID)
-		if releaseID != "" {
-			if current := strings.TrimSpace(vars["RELEASE_ID"]); current != "" && current != releaseID {
-				return nil, fmt.Errorf(
-					"release manifest release_id %q conflicts with build variable RELEASE_ID %q",
-					releaseID,
-					current,
-				)
-			}
-			vars["RELEASE_ID"] = releaseID
-		}
+		vars["RELEASE_ID"] = releaseID
 	}
 	if namespace := strings.TrimSpace(opts.Namespace); namespace != "" {
 		vars["NAMESPACE"] = namespace
@@ -2670,8 +2658,8 @@ func applyImageOverrides(apps []appModel, opts Options) error {
 		return err
 	}
 	images := map[imageKey]string{}
-	if strings.TrimSpace(opts.ReleaseManifest) != "" {
-		manifest, err := loadReleaseManifest(opts.ReleaseManifest)
+	for _, path := range releaseManifestPaths(opts) {
+		manifest, err := loadReleaseManifest(path)
 		if err != nil {
 			return err
 		}
@@ -2816,7 +2804,7 @@ func releaseImageSelectionFromOptions(opts Options) (releaseImageSelection, erro
 	if selection.ForceTag != "" && selection.ReferenceMode == "digest" {
 		return releaseImageSelection{}, errors.New("--force-image-tag cannot be combined with --image-reference digest")
 	}
-	if (selection.ForceTag != "" || selection.ForcePrefix != "") && strings.TrimSpace(opts.ReleaseManifest) == "" {
+	if (selection.ForceTag != "" || selection.ForcePrefix != "") && len(releaseManifestPaths(opts)) == 0 {
 		return releaseImageSelection{}, errors.New("--force-image-tag and --force-image-prefix require --release-manifest")
 	}
 	return selection, nil
@@ -2847,7 +2835,7 @@ type releaseManifest struct {
 	ReleaseID    string         `yaml:"release_id"`
 	CreatedAt    string         `yaml:"created_at"`
 	Bundle       *releaseBundle `yaml:"bundle"`
-	RegistryBase string         `yaml:"registry_base"`
+	RegistryBase string         `yaml:"repository_prefix"`
 	Platform     string         `yaml:"platform"`
 	Images       []releaseImage `yaml:"images"`
 	ExtraTags    []string       `yaml:"extra_tags"`
@@ -2863,7 +2851,7 @@ type releaseImage struct {
 	AppName       string         `yaml:"app_name"`
 	ContainerName string         `yaml:"container_name"`
 	Source        *releaseSource `yaml:"source"`
-	Image         string         `yaml:"image"`
+	Image         string         `yaml:"repository"`
 	Tag           string         `yaml:"tag"`
 	Digest        string         `yaml:"digest"`
 	ExtraTags     []string       `yaml:"extra_tags"`
@@ -2871,7 +2859,7 @@ type releaseImage struct {
 }
 
 type releaseSource struct {
-	Image  string `yaml:"image"`
+	Image  string `yaml:"repository"`
 	Tag    string `yaml:"tag"`
 	Digest string `yaml:"digest"`
 }
@@ -2883,6 +2871,10 @@ func loadReleaseManifest(path string) (releaseManifest, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return releaseManifest{}, err
+	}
+	content, err = normalizeReleaseDocument(content)
+	if err != nil {
+		return releaseManifest{}, fmt.Errorf("%s: %w", path, err)
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(content))
 	decoder.KnownFields(true)
@@ -2904,7 +2896,7 @@ func loadReleaseManifest(path string) (releaseManifest, error) {
 }
 
 func (m *releaseManifest) normalizeAndValidate() error {
-	if (m.APIVersion != "" || m.Kind != "") && (m.APIVersion != "oci-toolbox/v1" || m.Kind != "ImageRelease") {
+	if (m.APIVersion != "" || m.Kind != "") && ((m.APIVersion != "oci-toolbox/v1" && m.APIVersion != "oci-toolbox/v2") || m.Kind != "ImageRelease") {
 		return fmt.Errorf("unsupported release format %q / %q", m.APIVersion, m.Kind)
 	}
 	m.ReleaseID = strings.TrimSpace(m.ReleaseID)

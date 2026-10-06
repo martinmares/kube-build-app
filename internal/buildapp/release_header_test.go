@@ -14,7 +14,7 @@ func TestLoadReleaseManifestHeaderCompatibility(t *testing.T) {
 	}{
 		{"legacy", "", true},
 		{"v1", "apiVersion: oci-toolbox/v1\nkind: ImageRelease\n", true},
-		{"unknown version", "apiVersion: oci-toolbox/v2\nkind: ImageRelease\n", false},
+		{"unknown version", "apiVersion: oci-toolbox/v99\nkind: ImageRelease\n", false},
 		{"unknown kind", "apiVersion: oci-toolbox/v1\nkind: Bundle\n", false},
 		{"incomplete", "kind: ImageRelease\n", false},
 	} {

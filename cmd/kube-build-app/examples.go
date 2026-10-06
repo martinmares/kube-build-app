@@ -231,11 +231,13 @@ kube-build-app build -e dev -R environments -P resources -t deploy/dev`,
 			{
 				title:       "Use release manifest images",
 				description: "Strict mode requires an image entry for every primary container. The default --image-reference auto uses the digest before the tag. Replace the example digest with your image's actual SHA-256 digest.",
-				files: []exampleFile{{name: "release.yml", format: "YAML", content: `release_id: RE_2026.10.03.01
+				files: []exampleFile{{name: "release.yml", format: "YAML", content: `apiVersion: oci-toolbox/v2
+kind: ImageRelease
+release_id: RE_2026.10.03.01
 images:
   - app_name: api
     container_name: api
-    image: registry.example.com/demo/api
+    repository: registry.example.com/demo/api
     tag: RE_2026.10.03.01
     digest: sha256:0123456789abcdef...
 `}},

@@ -132,3 +132,12 @@ func TestValidateBuildConfigEnvironmentsRequiresExactSet(t *testing.T) {
 		t.Fatalf("unknown environment error = %v", err)
 	}
 }
+
+func TestBuildConfigOrderedReleaseManifests(t *testing.T) {
+	dir := t.TempDir()
+	configured := editorBuildContext{ReleaseManifest: "base.yml", ReleaseManifests: []string{"core.yml", "addons.yml"}, ReleaseID: "combined"}
+	opts := configured.options(buildapp.Options{}, dir)
+	if opts.ReleaseManifest != filepath.Join(dir, "base.yml") || len(opts.ReleaseManifests) != 2 || opts.ReleaseManifests[0] != filepath.Join(dir, "core.yml") || opts.ReleaseManifests[1] != filepath.Join(dir, "addons.yml") || opts.ReleaseID != "combined" {
+		t.Fatalf("options=%#v", opts)
+	}
+}

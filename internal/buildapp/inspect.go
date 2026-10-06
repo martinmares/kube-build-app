@@ -24,6 +24,8 @@ type BuildContext struct {
 	DecryptSecured        bool     `json:"decrypt_secured"`
 	NamespaceOverride     string   `json:"namespace_override,omitempty"`
 	ReleaseManifest       string   `json:"release_manifest,omitempty"`
+	ReleaseManifests      []string `json:"release_manifests,omitempty"`
+	ReleaseID             string   `json:"release_id,omitempty"`
 	ImagePolicy           string   `json:"image_policy"`
 	ImageReference        string   `json:"image_reference"`
 	ImageOverrideCount    int      `json:"image_override_count"`
@@ -223,7 +225,9 @@ func DescribeBuildContext(opts Options) (BuildContext, error) {
 		EnvURLInsecure:        insecure,
 		DecryptSecured:        decrypt,
 		NamespaceOverride:     strings.TrimSpace(opts.Namespace),
-		ReleaseManifest:       strings.TrimSpace(opts.ReleaseManifest),
+		ReleaseManifest:       inspectionReleaseManifest(opts),
+		ReleaseManifests:      releaseManifestPaths(opts),
+		ReleaseID:             strings.TrimSpace(opts.ReleaseID),
 		ImagePolicy:           normalizeImagePolicy(opts.ImagePolicy),
 		ImageReference:        normalizeImageReference(opts.ImageReference),
 		ImageOverrideCount:    len(opts.ImageOverrides),
@@ -725,12 +729,12 @@ func inspectImageOverrideOrigins(apps []appModel, opts Options) (map[imageKey]In
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(opts.ReleaseManifest) != "" {
-		manifest, err := loadReleaseManifest(opts.ReleaseManifest)
+	for _, path := range releaseManifestPaths(opts) {
+		manifest, err := loadReleaseManifest(path)
 		if err != nil {
 			return nil, err
 		}
-		origin := InspectOrigin{Kind: "release_manifest", Document: filepath.ToSlash(opts.ReleaseManifest), YAMLPath: "images"}
+		origin := InspectOrigin{Kind: "release_manifest", Document: filepath.ToSlash(path), YAMLPath: "images"}
 		for _, app := range apps {
 			for _, container := range app.Containers {
 				image, err := manifest.imageFor(app.Name, container.Name, selection)
@@ -1149,8 +1153,8 @@ func inspectionOrigins(source SourceDocument, defaultsPath string, opts Options)
 	if strings.TrimSpace(opts.ResourcePolicyRoot) != "" {
 		origins = append(origins, InspectOrigin{Kind: "external_resource_policy", Document: filepath.ToSlash(filepath.Join(opts.ResourcePolicyRoot, opts.Environment, "apps", filepath.Base(source.Path))), YAMLPath: "containers", Target: "containers+sidecars"})
 	}
-	if strings.TrimSpace(opts.ReleaseManifest) != "" {
-		origins = append(origins, InspectOrigin{Kind: "release_manifest", Document: filepath.ToSlash(opts.ReleaseManifest), YAMLPath: "applications", Target: "images"})
+	for _, path := range releaseManifestPaths(opts) {
+		origins = append(origins, InspectOrigin{Kind: "release_manifest", Document: filepath.ToSlash(path), YAMLPath: "images", Target: "images"})
 	}
 	return origins
 }
@@ -1169,4 +1173,12 @@ func stringValues(value any) []string {
 func inspectAnySlice(value any) []any {
 	items, _ := value.([]any)
 	return items
+}
+
+func inspectionReleaseManifest(opts Options) string {
+	paths := releaseManifestPaths(opts)
+	if len(paths) == 1 {
+		return paths[0]
+	}
+	return ""
 }

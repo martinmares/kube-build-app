@@ -32,7 +32,8 @@ type cliOptions struct {
 	varsSources               []string
 	legacyApplyEnv            bool
 	helmEscapeAssets          bool
-	releaseManifest           string
+	releaseManifests          []string
+	releaseID                 string
 	customerReleaseID         string
 	releaseContextName        string
 	releaseIDEnvName          string
@@ -81,17 +82,18 @@ func newRootCommand(info appinfo.Info, opts *cliOptions) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if opts.showVersion {
+				_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s version %s (commit %s, built %s)\n", info.Name, info.Version, info.Commit, info.Date)
+				return err
+			}
 			if len(os.Args) == 1 {
 				return cmd.Help()
-			}
-			if opts.showVersion {
-				return printJSON(cmd, info)
 			}
 			return runLegacyMode(cmd, opts)
 		},
 	}
 
-	root.PersistentFlags().BoolVar(&opts.showVersion, "version", false, "print version information as JSON")
+	root.PersistentFlags().BoolVar(&opts.showVersion, "version", false, "print version, commit and build timestamp")
 	root.PersistentFlags().StringVarP(&opts.envName, "environment", "e", "", "environment name")
 	root.PersistentFlags().StringVar(&opts.namespace, "namespace", "", "override target namespace for generated resources")
 	root.PersistentFlags().StringVarP(&opts.root, "root", "R", "environments", "environments root directory")
@@ -107,14 +109,15 @@ func newRootCommand(info appinfo.Info, opts *cliOptions) *cobra.Command {
 	root.PersistentFlags().StringArrayVar(&opts.varsSources, "vars-source", nil, "variable source(s): env, json, dot-env; repeatable or comma-separated")
 	root.PersistentFlags().BoolVar(&opts.legacyApplyEnv, "legacy-apply-env", false, "resolve legacy {{VAR}} placeholders in generated deployment and external service manifests")
 	root.PersistentFlags().BoolVar(&opts.helmEscapeAssets, "helm-escape-assets", false, "escape remaining {{VAR}} placeholders in text assets")
-	root.PersistentFlags().StringVarP(&opts.releaseManifest, "release-manifest", "r", "", "release manifest YAML path")
+	root.PersistentFlags().StringArrayVarP(&opts.releaseManifests, "release-manifest", "r", nil, "release manifest YAML path (v1 or v2); repeatable, later files override earlier files")
+	root.PersistentFlags().StringVar(&opts.releaseID, "release-id", "", "deployment release ID; required with multiple release manifests, inferred from a single manifest")
 	root.PersistentFlags().StringVar(&opts.customerReleaseID, "customer-release-id", "", "customer release ID recorded in deployment metadata and release context")
 	root.PersistentFlags().StringVar(&opts.releaseContextName, "release-context-name", "", "stable release context ConfigMap name; defaults to release-context-<sync-set>")
 	root.PersistentFlags().StringVar(&opts.releaseIDEnvName, "release-id-env-name", "RELEASE_ID", "container ENV name for release ID")
 	root.PersistentFlags().StringVar(&opts.customerReleaseIDEnvName, "customer-release-id-env-name", "CUSTOMER_RELEASE_ID", "container ENV name for customer release ID")
 	root.PersistentFlags().BoolVar(&opts.noReleaseContextConfigMap, "no-release-context-configmap", false, "do not generate release context ConfigMap")
 	root.PersistentFlags().BoolVar(&opts.noReleaseContextEnv, "no-release-context-env", false, "do not inject release context ENV references")
-	root.PersistentFlags().StringArrayVar(&opts.imageOverrides, "image", nil, "override image as app/container=image; repeatable or comma-separated")
+	root.PersistentFlags().StringArrayVar(&opts.imageOverrides, "image", nil, "inject or override image as app/container=image-reference (including public registries); applied after all release manifests; repeatable or comma-separated")
 	root.PersistentFlags().StringVar(&opts.imagePolicy, "image-policy", "fallback", "image override policy: fallback or strict")
 	root.PersistentFlags().StringVar(&opts.imageReference, "image-reference", "auto", "release image reference: auto, digest, or tag")
 	root.PersistentFlags().StringVar(&opts.forceImageTag, "force-image-tag", "", "force one tag for every image selected from the release manifest")
@@ -430,7 +433,8 @@ func toBuildOptions(opts *cliOptions) buildapp.Options {
 		VarsSources:                    opts.varsSources,
 		LegacyApplyEnv:                 opts.legacyApplyEnv,
 		HelmEscapeAssets:               opts.helmEscapeAssets,
-		ReleaseManifest:                opts.releaseManifest,
+		ReleaseManifests:               append([]string(nil), opts.releaseManifests...),
+		ReleaseID:                      opts.releaseID,
 		CustomerReleaseID:              opts.customerReleaseID,
 		ReleaseContextName:             opts.releaseContextName,
 		ReleaseIDEnvName:               opts.releaseIDEnvName,

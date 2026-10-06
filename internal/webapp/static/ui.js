@@ -957,7 +957,7 @@ function renderSelectedAppView() {
 function renderEffectiveContextStatus(inspection) {
   const context = inspection?.context || {};
   const sources = (context.variable_sources || []).join(' + ') || 'none';
-  return `<div class="alert alert-success py-2"><i class="ti ti-layers-linked me-2"></i>Resolved for namespace <span class="font-monospace">${esc(inspection.namespace || '?')}</span> from ${esc(sources)} variables${context.release_manifest ? ' and release manifest' : ''}.</div>`;
+  return `<div class="alert alert-success py-2"><i class="ti ti-layers-linked me-2"></i>Resolved for namespace <span class="font-monospace">${esc(inspection.namespace || '?')}</span> from ${esc(sources)} variables${context.release_manifests?.length > 1 ? ` and ${esc(context.release_manifests.length)} release manifests` : context.release_manifest ? ' and release manifest' : ''}.</div>`;
 }
 
 function renderDefaultsOverview() {

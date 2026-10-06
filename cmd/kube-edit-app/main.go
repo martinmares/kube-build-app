@@ -109,7 +109,8 @@ func newServeCommand(info appinfo.Info, opts *cliOptions) *cobra.Command {
 	cmd.Flags().StringArrayVar(&opts.build.VarsSources, "vars-source", nil, "variable sources: env, json, dot-env; repeatable")
 	cmd.Flags().BoolVar(&opts.build.LegacyApplyEnv, "legacy-apply-env", false, "resolve legacy placeholders in generated preview files")
 	cmd.Flags().BoolVar(&opts.build.HelmEscapeAssets, "helm-escape-assets", false, "escape remaining placeholders in text assets")
-	cmd.Flags().StringVarP(&opts.build.ReleaseManifest, "release-manifest", "r", "", "release manifest YAML path")
+	cmd.Flags().StringArrayVarP(&opts.build.ReleaseManifests, "release-manifest", "r", nil, "release manifest YAML path (v1 or v2); repeatable, later files override earlier files")
+	cmd.Flags().StringVar(&opts.build.ReleaseID, "release-id", "", "deployment release ID; required with multiple release manifests")
 	cmd.Flags().StringArrayVar(&opts.build.ImageOverrides, "image", nil, "image override app/container=image; repeatable")
 	cmd.Flags().StringVar(&opts.build.ImagePolicy, "image-policy", "fallback", "image policy: fallback or strict")
 	cmd.Flags().StringVar(&opts.build.ImageReference, "image-reference", "auto", "release image reference: auto, digest, or tag")
@@ -211,7 +212,7 @@ func changedBuildContextFlags(cmd *cobra.Command) []string {
 	names := []string{
 		"namespace", "resource-policy-root", "profile", "profiles-file",
 		"decrypt-secured", "env-file", "env-url", "env-url-header", "env-url-insecure", "vars-source",
-		"legacy-apply-env", "helm-escape-assets", "release-manifest", "image", "image-policy", "image-reference",
+		"legacy-apply-env", "helm-escape-assets", "release-manifest", "release-id", "image", "image-policy", "image-reference",
 		"force-image-tag", "force-image-prefix", "sync-metadata-profile", "sync-metadata-prefix", "sync-set", "down", "yaml-indent",
 	}
 	changed := []string{}

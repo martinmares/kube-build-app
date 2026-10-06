@@ -689,7 +689,8 @@ Užitečné flagy:
 -t, --target             výstupní adresář
 -p, --profile            název replica profilu
     --profiles-file      cesta k replica profiles souboru
--r, --release-manifest   cesta k release manifest YAML
+-r, --release-manifest   cesta k release manifest YAML; opakovatelné, pozdější má přednost
+    --release-id         ID výsledného deploymentu; povinné pro více manifestů
     --image              přepíše image ve formátu app/container=image; opakovatelné
     --image-policy       politika image override: fallback nebo strict
     --image-reference    release image reference: auto, digest nebo tag
@@ -710,6 +711,42 @@ Užitečné flagy:
 ```
 
 ## Vyhodnocení Image
+
+
+Podporované jsou `oci-toolbox/v1` (`image`, `source.image`, `registry_base`),
+`oci-toolbox/v2` (`repository`, `source.repository`, `repository_prefix`) i
+historické v1 soubory bez hlavičky. Názvy polí musí odpovídat verzi.
+Duplicitní selectory a ID jsou odmítnuty uvnitř jednoho souboru; mezi soubory
+se stejné selectory mohou přepisovat a logická ID položek opakovat.
+
+Opakovaný `--release-manifest` aplikuje soubory v pořadí argumentů. Pozdější
+soubor přepíše jen containery, pro které obsahuje odpovídající záznam, včetně
+wildcardu a app-level fallbacku. Uvnitř každého souboru má přesný selector
+přednost před wildcardem a app-level fallbackem. Explicitní `--image` se
+aplikuje nakonec a může dodat image pro selector chybějící ve všech manifestech.
+Cílí na existující containery/sidecary; nové containery nevytváří.
+
+```bash
+kube-build-app build -e prod -R environments -t deploy/prod \
+  --release-manifest releases/core.yml \
+  --release-manifest releases/addons.yml \
+  --release-id TSM-Core_RE2026.01.02 \
+  --image 'monitoring/nginx=docker.io/library/nginx:1.27'
+```
+
+Více souborů vyžaduje explicitní `--release-id` pro deployment labely,
+release-context ConfigMap a build proměnnou `RELEASE_ID`. Jeden soubor dál
+poskytne své `release_id` automaticky. Explicitní `--release-id` má přednost
+před `RELEASE_ID` ze zdrojů proměnných; bez tohoto argumentu zůstává původní
+kontrola konfliktu. Veřejné images mohou používat také `@sha256:...`.
+Builder nepřistupuje do registry.
+
+`kube-edit-app` používá stejné vyhodnocení. Jeho build config navíc podporuje
+uspořádané `release_manifests: [core.yml, addons.yml]` a `release_id`.
+Původní `release_manifest` zůstává podporovaný. Relativní cesty se vyhodnotí
+vůči build configu; při uvedení obou klíčů se nejprve aplikuje samostatný
+soubor a potom seznam.
+
 
 `kube-build-app` vyhodnocuje container image podle dvojice `<app>/<container>`.
 
@@ -732,34 +769,36 @@ Mezi selektorem a image používáme `=`, ne `:`, protože container image refer
 Release manifest je určený pro řízené release pipeline. `kube-build-app` umí přímo použít neměnný manifest generovaný přes `oci-toolbox bundle publish` nebo `oci-toolbox release reconstruct`:
 
 ```yaml
+apiVersion: oci-toolbox/v2
+kind: ImageRelease
 release_id: RE_2026.07.28.01
 created_at: 2026-07-28T18:00:00Z
 bundle:
   name: stable
   revision: abc123
-registry_base: registry.example.com/project
+repository_prefix: registry.example.com/project
 platform: linux/amd64
 images:
   - id: api
     app_name: api
     container_name: api
     source:
-      image: registry-source.example.com/team/api
+      repository: registry-source.example.com/team/api
       tag: build-1
       digest: sha256:source
-    image: registry.example.com/project/api
+    repository: registry.example.com/project/api
     tag: RE_2026.07.28.01
     digest: sha256:target
     extra_tags: [stable]
     platform: linux/amd64
   - app_name: "*"
     container_name: cgroup-runtime-exporter
-    image: registry.example.com/project/cgroup-runtime-exporter
+    repository: registry.example.com/project/cgroup-runtime-exporter
     tag: RE_2026.07.28.01
 extra_tags: [stable]
 ```
 
-Parser je striktní a rozumí auditním metadatům zapisovaným nástrojem `oci-toolbox`: `created_at`, `bundle`, `platform`, image `id`, `source` a `extra_tags`. Pro rendering používá pouze `app_name`, `container_name`, cílové `image`, `digest` a `tag`. Duplicitní selectory a ID jsou odmítnuty stejně jako per-image platforma, která je v konfliktu s top-level platformou.
+Parser je striktní a rozumí auditním metadatům zapisovaným nástrojem `oci-toolbox`: `created_at`, `bundle`, `platform`, image `id`, `source` a `extra_tags`. Pro rendering používá pouze `app_name`, `container_name`, cílové `repository`, `digest` a `tag`. Duplicitní selectory a ID jsou odmítnuty stejně jako per-image platforma, která je v konfliktu s top-level platformou.
 
 Pro container nebo sidecar sdílený více aplikacemi použijte `app_name: "*"`.
 Přesný záznam `<app_name>/<container_name>` má před wildcardem přednost, takže
@@ -2368,6 +2407,8 @@ kube-build-app build -e test -R environments -t deploy/test --yaml-indent 4
 ```
 
 `just build-cross` vloží do každé binárky `kube-build-app` hodnotu `VERSION`, Git commit a čas buildu v UTC. Artefakt ověříte pomocí `kube-build-app --version`.
+
+Výstup verze je jeden textový řádek: `kube-build-app version <verze> (commit <commit>, built <čas v UTC>)`. Spuštění ze zdrojů bez build metadat vypíše `dev` a `unknown`.
 
 Release binárky s version metadata a SHA256 checksumy:
 

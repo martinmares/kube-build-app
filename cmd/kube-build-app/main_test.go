@@ -12,6 +12,25 @@ import (
 	"kube-env/internal/appinfo"
 )
 
+func TestVersionPrintsBuildInfoWithoutEnvironment(t *testing.T) {
+	info := appinfo.Info{Name: appinfo.BuildAppName, Version: "0.20.5", Commit: "409ec9b", Date: "2026-10-06T20:15:49Z"}
+	cmd := newRootCommand(info, &cliOptions{})
+	var out, stderr bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--version"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("version failed: %v", err)
+	}
+	want := "kube-build-app version 0.20.5 (commit 409ec9b, built 2026-10-06T20:15:49Z)\n"
+	if out.String() != want {
+		t.Fatalf("version output = %q, want %q", out.String(), want)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("unexpected stderr: %s", stderr.String())
+	}
+}
+
 func TestCobraLegacySummaryFlag(t *testing.T) {
 	root := writeCLIEnv(t)
 	out := runCLI(t, "-s", "-e", "test", "-R", root)
