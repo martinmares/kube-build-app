@@ -118,7 +118,7 @@ func resolveReleaseID(opts Options) (string, error) {
 	paths := releaseManifestPaths(opts)
 	id := strings.TrimSpace(opts.ReleaseID)
 	if opts.ReleaseID != "" && id == "" {
-		return "", errors.New("release ID must not be empty")
+		return "", errors.New("ReleaseID must not be empty")
 	}
 	if len(paths) > 1 && id == "" {
 		return "", errors.New("multiple --release-manifest files require an explicit --release-id for deployment metadata")

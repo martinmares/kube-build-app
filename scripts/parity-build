@@ -91,7 +91,7 @@ echo "== Ruby reference build =="
 if [[ -n "$go_bin" && -x "$go_bin" ]]; then
   echo
   echo "== Go candidate build =="
-  "$go_bin" -e "$env_name" -R "$root" -t "$go_out"
+  "$go_bin" -e "$env_name" -R "$root" --output-dir "$go_out"
 
   echo
   echo "== Compare file set =="

@@ -1625,23 +1625,20 @@ containers:
       memory: {from: "128Mi", to: "256Mi"}
 `)
 
-	_, err := Build(Options{Environment: "test", Root: root, Target: target, ReleaseManifest: manifestPath, CustomerReleaseID: "TSM-Core_RE61_SP_04.01"})
+	_, err := Build(Options{Environment: "test", Root: root, Target: target, ReleaseManifest: manifestPath, ReleaseID: "TSM-Core_RE61_SP_04.01"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	deployment := loadYAML(t, filepath.Join(target, "deployments", "api-deployment.yml"))
-	if got := digString(deployment, "metadata", "labels", "app.kubernetes.io/version"); got != "2.4" {
-		t.Fatalf("version label = %q, want 2.4", got)
+	if got := digString(deployment, "metadata", "labels", "app.kubernetes.io/version"); got != "TSM-Core_RE61_SP_04.01" {
+		t.Fatalf("version label = %q, want ReleaseID", got)
 	}
 	if got := digString(deployment, "spec", "template", "spec", "containers", "0", "image"); got != "registry.release/api:2.4" {
 		t.Fatalf("image = %q, want registry.release/api:2.4", got)
 	}
-	if got := digString(deployment, "metadata", "labels", releaseIDLabel); got != "2.4" {
+	if got := digString(deployment, "metadata", "labels", releaseIDLabel); got != "TSM-Core_RE61_SP_04.01" {
 		t.Fatalf("release ID label = %q", got)
-	}
-	if got := digString(deployment, "metadata", "labels", customerReleaseIDLabel); got != "TSM-Core_RE61_SP_04.01" {
-		t.Fatalf("customer release ID label = %q", got)
 	}
 	if got := digString(deployment, "spec", "template", "metadata", "labels", releaseIDLabel); got != "" {
 		t.Fatalf("Pod template release ID = %q, want absent", got)
@@ -1650,11 +1647,8 @@ containers:
 		t.Fatalf("release context ref = %q", got)
 	}
 	context := loadYAML(t, filepath.Join(target, "assets", "shared", "release-context.yml"))
-	if got := digString(context, "data", "RELEASE_ID"); got != "2.4" {
+	if got := digString(context, "data", "RELEASE_ID"); got != "TSM-Core_RE61_SP_04.01" {
 		t.Fatalf("context release ID = %q", got)
-	}
-	if got := digString(context, "data", "CUSTOMER_RELEASE_ID"); got != "TSM-Core_RE61_SP_04.01" {
-		t.Fatalf("context customer ID = %q", got)
 	}
 	if got := digString(deployment, "spec", "selector", "matchLabels", releaseIDLabel); got != "" {
 		t.Fatalf("release ID must not be added to selector: %q", got)
@@ -1667,17 +1661,11 @@ containers:
 	if got := digString(deployment, "metadata", "labels", releaseIDLabel); got != "2.4" {
 		t.Fatalf("dev release ID label = %q", got)
 	}
-	if got := digString(deployment, "metadata", "labels", customerReleaseIDLabel); got != "" {
-		t.Fatalf("dev customer release ID label must be absent, got %q", got)
-	}
 	context = loadYAML(t, filepath.Join(target, "assets", "shared", "release-context.yml"))
-	if got := digString(context, "data", "CUSTOMER_RELEASE_ID"); got != "" {
-		t.Fatalf("dev customer ID = %q", got)
-	}
 	writeFile(t, filepath.Join(envDir, "apps", "api.yml"), `
 name: api
 labels:
-  app.kubernetes.io/customer-release-id: different-release
+  app.kubernetes.io/release-id: different-release
 containers:
   - name: api
     image: registry.local/api:latest
@@ -1685,7 +1673,7 @@ containers:
       cpu: {from: "100m", to: "200m"}
       memory: {from: "128Mi", to: "256Mi"}
 `)
-	_, err = Build(Options{Environment: "test", Root: root, Target: target, ReleaseManifest: manifestPath, CustomerReleaseID: "TSM-Core_RE61_SP_04.01"})
+	_, err = Build(Options{Environment: "test", Root: root, Target: target, ReleaseManifest: manifestPath, ReleaseID: "TSM-Core_RE61_SP_04.01"})
 	if err == nil || !strings.Contains(err.Error(), "conflicts with computed release ID") {
 		t.Fatalf("conflicting release label should fail, got %v", err)
 	}
@@ -1704,7 +1692,7 @@ func TestReleaseContextPatchChangesOnlyAffectedPodTemplate(t *testing.T) {
 	writeFile(t, second, "release_id: 2026.09.11.02\nimages:\n  - app_name: api\n    container_name: api\n    image: registry.release/api\n    tag: v2\n  - app_name: worker\n    container_name: worker\n    image: registry.release/worker\n    tag: v1\n")
 	oldTarget, newTarget := filepath.Join(root, "old"), filepath.Join(root, "new")
 	for _, build := range []struct{ manifest, customer, target string }{{first, "RE_2026.09.11.01", oldTarget}, {second, "RE_2026.09.11.01.patch1", newTarget}} {
-		if _, err := Build(Options{Environment: "test", Root: root, Target: build.target, ReleaseManifest: build.manifest, CustomerReleaseID: build.customer, SyncProfile: "kube-deploy-sync"}); err != nil {
+		if _, err := Build(Options{Environment: "test", Root: root, Target: build.target, ReleaseManifest: build.manifest, ReleaseID: build.customer, SyncProfile: "kube-deploy-sync"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1809,7 +1797,6 @@ containers:
 	}
 	opts.ReleaseContextName = "custom-context"
 	opts.ReleaseIDEnvName = "APP_RELEASE_ID"
-	opts.CustomerReleaseIDEnvName = "APP_CUSTOMER_RELEASE_ID"
 	opts.DisableReleaseContextConfigMap = true
 	if _, err := Build(opts); err != nil {
 		t.Fatal(err)

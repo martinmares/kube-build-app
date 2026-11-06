@@ -28,7 +28,7 @@ func TestExamplesCommandOutput(t *testing.T) {
 		"FILE environments/dev/apps/_defaults.yml (YAML)",
 		"sidecar_ref_names: [metrics]",
 		"SHELL",
-		"kube-build-app build -e dev -R environments -P resources -t deploy/dev",
+		"kube-build-app build -e dev -R environments -P resources --output-dir deploy/dev",
 		"--sync-metadata-profile argocd --sync-set prod",
 	} {
 		if !strings.Contains(got, want) {
@@ -88,7 +88,7 @@ func TestExamplesBuildInputs(t *testing.T) {
 	writeExampleTestFile(t, release,
 		findExampleFile(t, "Release images", "Use release manifest images", "release.yml"))
 	target := filepath.Join(t.TempDir(), "deploy")
-	runCLI(t, "build", "-e", "dev", "-R", root, "-t", target,
+	runCLI(t, "build", "-e", "dev", "-R", root, "--output-dir", target,
 		"--release-manifest", release, "--image-policy", "strict")
 	deployment, err := os.ReadFile(filepath.Join(target, "deployments", "api-deployment.yml"))
 	if err != nil {

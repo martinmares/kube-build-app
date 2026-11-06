@@ -172,7 +172,7 @@ containers:
 Build manifests:
 
 ```bash
-kube-build-app build -e test -R environments -t deploy/test
+kube-build-app build -e test -R environments --output-dir deploy/test
 ```
 
 Generated files:
@@ -184,7 +184,7 @@ deploy/test/
   assets/
 ```
 
-If `-t/--target` is omitted, the default output directory is:
+If `--output-dir` is omitted, the default output directory is:
 
 ```text
 <root>/<environment>/target
@@ -196,7 +196,7 @@ Preferred modern commands:
 
 ```bash
 kube-build-app examples
-kube-build-app build -e test -R environments -t deploy/test
+kube-build-app build -e test -R environments --output-dir deploy/test
 kube-build-app validate -e test -R environments
 kube-build-app summary -e test -R environments
 kube-build-app summary --summary-format json -e test -R environments
@@ -238,7 +238,7 @@ kube-build-app build \
   -e test \
   -R tsm-environments \
   -P tsm-resources \
-  -t deploy/test
+  --output-dir deploy/test
 ```
 
 The policy repository mirrors app file paths from the environment repository:
@@ -690,7 +690,7 @@ the original object can be reconstructed byte-for-byte.
 Legacy-compatible root flags are still supported:
 
 ```bash
-kube-build-app -e test -R environments -t deploy/test
+kube-build-app -e test -R environments --output-dir deploy/test
 kube-build-app -s -e test -R environments
 kube-build-app -i -e test -R environments
 kube-build-app -l -e test -R environments
@@ -711,9 +711,9 @@ kube-build-app summary -e test
 Verbose build logging:
 
 ```bash
-kube-build-app build -e test -R environments -t deploy/test --verbose
-kube-build-app build -e test -R environments -t deploy/test --verbose --log-format json
-kube-build-app build -e test -R environments -t deploy/test --verbose --color always
+kube-build-app build -e test -R environments --output-dir deploy/test --verbose
+kube-build-app build -e test -R environments --output-dir deploy/test --verbose --log-format json
+kube-build-app build -e test -R environments --output-dir deploy/test --verbose --color always
 ```
 
 Build logs are written to `stderr`. Normal command output stays on `stdout`.
@@ -723,7 +723,7 @@ Useful flags:
 ```text
 -e, --environment        environment name
 -R, --root               environments root directory, default: environments
--t, --target             target output directory
+    --output-dir             target output directory
 -p, --profile            replica profile name
     --profiles-file      replica profiles file path
 -r, --release-manifest   release manifest YAML path; repeatable, later files win
@@ -764,7 +764,7 @@ files, even when the selector is absent from every release manifest.
 They target existing containers/sidecars; they do not create containers.
 
 ```bash
-kube-build-app build -e prod -R environments -t deploy/prod \
+kube-build-app build -e prod -R environments --output-dir deploy/prod \
   --release-manifest releases/core.yml \
   --release-manifest releases/addons.yml \
   --release-id TSM-Core_RE2026.01.02 \
@@ -870,23 +870,20 @@ inconsistent image and metadata versions. Without `--release-manifest`,
 `RELEASE_ID` continues to come only from the configured external variable
 sources.
 
-`--release-manifest` reads the image `release_id` from the manifest content.
-`--customer-release-id TSM-Core_RE61_SP_04.01` supplies the independent
-customer release ID. The generated Deployment metadata carries
-`app.kubernetes.io/release-id` and, when supplied,
-`app.kubernetes.io/customer-release-id` labels. Both values must fit Kubernetes
-label syntax (at most 63 characters). Neither label is added to the Deployment
-selector or Pod template.
+`--release-manifest` supplies `release_id` when exactly one manifest is selected.
+`--release-id SWD-42` explicitly selects the single release identity and is
+required when combining multiple manifests. It also supplies the value used in
+deployment metadata and release context; there is no separate customer ID.
+The generated Deployment metadata carries `app.kubernetes.io/release-id`.
+This label must fit Kubernetes label syntax (at most 63 characters) and is not
+added to the Deployment selector or Pod template.
 
-With a release manifest, the build also creates one stable ConfigMap named
-`release-context` by default, with `RELEASE_ID` and optional
-`CUSTOMER_RELEASE_ID` data. Every regular container, including sidecars, gets
-explicit `configMapKeyRef` environment entries. The customer entry is optional
-and remains in the Pod template even when no customer ID is assigned. Init
-containers are not injected. Updating the ConfigMap does not change existing
+A release build creates one stable ConfigMap with `RELEASE_ID` data. Every
+regular container, including sidecars, gets an explicit `configMapKeyRef`
+environment entry. Init containers are not injected. Updating the ConfigMap does not change existing
 container environments or trigger a Deployment rollout; a newly created Pod
 reads the current values. The ConfigMap has sync order 100, before Deployments
-at order 200. Remove old manual Downward API entries for these two ENV names
+at order 200. Remove old manual Downward API entries for this ENV name
 from app models; conflicting entries fail the build.
 
 Set `release_context_name: release-context-dev` at the top level of
@@ -897,16 +894,14 @@ overrides this setting. The other defaults can be adjusted independently:
 ```bash
 kube-build-app build -e test --release-manifest release.yml \
   --release-context-name tsm-release-context \
-  --release-id-env-name RELEASE_ID \
-  --customer-release-id-env-name CUSTOMER_RELEASE_ID
+  --release-id-env-name RELEASE_ID
 ```
 
 `--no-release-context-configmap` uses an externally managed ConfigMap while
 keeping ENV references. `--no-release-context-env` keeps ConfigMap generation
 but skips injection. Both flags together disable the runtime release context.
 When renaming ENV variables, configure `simple-idm-token-proxy` with
-`SIMPLE_IDM_TOKEN_PROXY_RELEASE_ID_ENV_NAME` and
-`SIMPLE_IDM_TOKEN_PROXY_CUSTOMER_RELEASE_ID_ENV_NAME` accordingly. Existing
+`SIMPLE_IDM_TOKEN_PROXY_RELEASE_ID_ENV_NAME` accordingly. Existing
 Pods retain the context with which they started; a one-time rollout occurs when
 switching from the old Pod-label/Downward API scheme to stable references.
 
@@ -2339,13 +2334,13 @@ profiles:
 Run:
 
 ```bash
-kube-build-app build -e test -p maintenance -R environments -t deploy/test
+kube-build-app build -e test -p maintenance -R environments --output-dir deploy/test
 ```
 
 Scale selected apps down directly:
 
 ```bash
-kube-build-app build -e test -w worker -R environments -t deploy/test
+kube-build-app build -e test -w worker -R environments --output-dir deploy/test
 ```
 
 ## Rollout Checksums
@@ -2418,7 +2413,7 @@ If generated manifests are rendered again by Helm, remaining plain placeholders 
 Use:
 
 ```bash
-kube-build-app build -e test -R environments -t deploy/test --helm-escape-assets
+kube-build-app build -e test -R environments --output-dir deploy/test --helm-escape-assets
 ```
 
 Remaining placeholders are wrapped from:
@@ -2446,7 +2441,7 @@ Inventory exposes the expected generated paths so external tooling can produce t
 Build image:
 
 ```bash
-docker build -t kube-build-app:latest .
+docker build --output-dir kube-build-app:latest .
 ```
 
 Run:
@@ -2456,7 +2451,7 @@ docker run --rm \
   -v "$PWD/environments:/work/environments:ro" \
   -v "$PWD/deploy:/work/deploy" \
   kube-build-app:latest \
-  kube-build-app build -e test -R /work/environments -t /work/deploy/test
+  kube-build-app build -e test -R /work/environments --output-dir /work/deploy/test
 ```
 
 ## Development
@@ -2483,7 +2478,7 @@ just build-cross-all
 Generated manifests use two-space YAML indentation by default, matching the Ruby implementation. Use `--yaml-indent 4` only where a repository convention requires four spaces:
 
 ```bash
-kube-build-app build -e test -R environments -t deploy/test --yaml-indent 4
+kube-build-app build -e test -R environments --output-dir deploy/test --yaml-indent 4
 ```
 
 `just build-cross` injects the `VERSION`, Git commit and UTC build timestamp into every `kube-build-app` binary. Verify an artifact with `kube-build-app --version`.
@@ -2509,7 +2504,7 @@ kube-build-app validate -e dev -R fixtures/readme-smoke/environments
 kube-build-app list -e dev -R fixtures/readme-smoke/environments
 kube-build-app summary -e dev -R fixtures/readme-smoke/environments
 kube-build-app inventory -e dev -R fixtures/readme-smoke/environments
-kube-build-app build -e dev -R fixtures/readme-smoke/environments -t /tmp/kube-build-app-readme-smoke
+kube-build-app build -e dev -R fixtures/readme-smoke/environments --output-dir /tmp/kube-build-app-readme-smoke
 ```
 
 Run parity against Ruby reference implementation:

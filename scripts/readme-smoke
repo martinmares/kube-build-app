@@ -61,7 +61,7 @@ assert_contains "$inventory_out" '"apps_count": 2'
 assert_contains "$inventory_out" '"containers_count": 2'
 assert_contains "$inventory_out" '"rollout_checksums"'
 
-run "$bin" build -e "$env_name" -R "$root" -t "$target/out" --verbose --color never
+run "$bin" build -e "$env_name" -R "$root" --output-dir "$target/out" --verbose --color never
 assert_file "$target/out/deployments/api-deployment.yml"
 assert_file "$target/out/deployments/worker-deployment.yml"
 assert_file "$target/out/services/api-service.yml"

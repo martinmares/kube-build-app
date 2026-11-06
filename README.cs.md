@@ -15,6 +15,11 @@ kube-ops-app   = sandbox prototyp, ne aktivní produktový směr
 `kube-edit-app` je cílový Go přepis Rust aplikace `kube-environments-ui`. Viz `docs/KUBE_EDIT_APP_PLAN.md`.
 `kube-ops-app` zůstává pouze sandbox prototypem. Použitelné read-only koncepty se přesouvají do `kube-edit-app`; sync/reconcile zůstává odpovědností ArgoCD. Viz `docs/KUBE_OPS_TO_EDIT_APP_MIGRATION_PLAN.md`.
 
+Release má jediný identifikátor: CLI `--release-id`, YAML `release_id`, metadata
+`app.kubernetes.io/release-id` a proměnnou `RELEASE_ID`. Výstupní adresář builderu
+určuje `--output-dir`; deployment target patří nasazovací vrstvě. Jeden manifest
+může dodat ID automaticky, více manifestů vyžaduje explicitní `--release-id`.
+
 ## kube-edit-app Workflow
 
 Spuštění webového editoru v bezpečném read-only režimu:
@@ -160,7 +165,7 @@ containers:
 Vygenerování manifestů:
 
 ```bash
-kube-build-app build -e test -R environments -t deploy/test
+kube-build-app build -e test -R environments --output-dir deploy/test
 ```
 
 Výstup:
@@ -172,7 +177,7 @@ deploy/test/
   assets/
 ```
 
-Pokud chybí `-t/--target`, výchozí výstupní adresář je:
+Pokud chybí `--output-dir`, výchozí výstupní adresář je:
 
 ```text
 <root>/<environment>/target
@@ -183,7 +188,7 @@ Pokud chybí `-t/--target`, výchozí výstupní adresář je:
 Preferované moderní commandy:
 
 ```bash
-kube-build-app build -e test -R environments -t deploy/test
+kube-build-app build -e test -R environments --output-dir deploy/test
 kube-build-app validate -e test -R environments
 kube-build-app summary -e test -R environments
 kube-build-app summary --summary-format json -e test -R environments
@@ -204,7 +209,7 @@ kube-build-app build \
   -e test \
   -R tsm-environments \
   -P tsm-resources \
-  -t deploy/test
+  --output-dir deploy/test
 ```
 
 Policy repozitář kopíruje cesty app souborů z environment repozitáře:
@@ -653,7 +658,7 @@ původní objekt zrekonstruovat shodně po jednotlivých bajtech.
 Legacy root flagy zůstávají kvůli kompatibilitě:
 
 ```bash
-kube-build-app -e test -R environments -t deploy/test
+kube-build-app -e test -R environments --output-dir deploy/test
 kube-build-app -s -e test -R environments
 kube-build-app -i -e test -R environments
 kube-build-app -l -e test -R environments
@@ -674,9 +679,9 @@ kube-build-app summary -e test
 Verbose build logování:
 
 ```bash
-kube-build-app build -e test -R environments -t deploy/test --verbose
-kube-build-app build -e test -R environments -t deploy/test --verbose --log-format json
-kube-build-app build -e test -R environments -t deploy/test --verbose --color always
+kube-build-app build -e test -R environments --output-dir deploy/test --verbose
+kube-build-app build -e test -R environments --output-dir deploy/test --verbose --log-format json
+kube-build-app build -e test -R environments --output-dir deploy/test --verbose --color always
 ```
 
 Build logy se zapisují na `stderr`. Normální výstup příkazu zůstává na `stdout`.
@@ -686,7 +691,7 @@ Užitečné flagy:
 ```text
 -e, --environment        název prostředí
 -R, --root               root adresář environments, výchozí: environments
--t, --target             výstupní adresář
+    --output-dir             výstupní adresář
 -p, --profile            název replica profilu
     --profiles-file      cesta k replica profiles souboru
 -r, --release-manifest   cesta k release manifest YAML; opakovatelné, pozdější má přednost
@@ -727,7 +732,7 @@ aplikuje nakonec a může dodat image pro selector chybějící ve všech manife
 Cílí na existující containery/sidecary; nové containery nevytváří.
 
 ```bash
-kube-build-app build -e prod -R environments -t deploy/prod \
+kube-build-app build -e prod -R environments --output-dir deploy/prod \
   --release-manifest releases/core.yml \
   --release-manifest releases/addons.yml \
   --release-id TSM-Core_RE2026.01.02 \
@@ -2259,13 +2264,13 @@ profiles:
 Spuštění:
 
 ```bash
-kube-build-app build -e test -p maintenance -R environments -t deploy/test
+kube-build-app build -e test -p maintenance -R environments --output-dir deploy/test
 ```
 
 Přímé stažení vybraných appek na nulu:
 
 ```bash
-kube-build-app build -e test -w worker -R environments -t deploy/test
+kube-build-app build -e test -w worker -R environments --output-dir deploy/test
 ```
 
 ## Rollout Checksums
@@ -2338,7 +2343,7 @@ Pokud se vygenerované manifesty renderují ještě Helmem, zbývající holé p
 Použijte:
 
 ```bash
-kube-build-app build -e test -R environments -t deploy/test --helm-escape-assets
+kube-build-app build -e test -R environments --output-dir deploy/test --helm-escape-assets
 ```
 
 Zbývající placeholdery se přepíšou z:
@@ -2366,7 +2371,7 @@ Inventory obsahuje očekávané cesty, aby externí tooling mohl vytvořit odpov
 Build image:
 
 ```bash
-docker build -t kube-build-app:latest .
+docker build --output-dir kube-build-app:latest .
 ```
 
 Run:
@@ -2376,7 +2381,7 @@ docker run --rm \
   -v "$PWD/environments:/work/environments:ro" \
   -v "$PWD/deploy:/work/deploy" \
   kube-build-app:latest \
-  kube-build-app build -e test -R /work/environments -t /work/deploy/test
+  kube-build-app build -e test -R /work/environments --output-dir /work/deploy/test
 ```
 
 ## Vývoj
@@ -2403,7 +2408,7 @@ just build-cross-all
 Generované manifesty používají výchozí odsazení YAML dvěma mezerami, stejně jako Ruby implementace. Pokud repozitář výslovně vyžaduje čtyři mezery, použijte `--yaml-indent 4`:
 
 ```bash
-kube-build-app build -e test -R environments -t deploy/test --yaml-indent 4
+kube-build-app build -e test -R environments --output-dir deploy/test --yaml-indent 4
 ```
 
 `just build-cross` vloží do každé binárky `kube-build-app` hodnotu `VERSION`, Git commit a čas buildu v UTC. Artefakt ověříte pomocí `kube-build-app --version`.
@@ -2429,7 +2434,7 @@ kube-build-app validate -e dev -R fixtures/readme-smoke/environments
 kube-build-app list -e dev -R fixtures/readme-smoke/environments
 kube-build-app summary -e dev -R fixtures/readme-smoke/environments
 kube-build-app inventory -e dev -R fixtures/readme-smoke/environments
-kube-build-app build -e dev -R fixtures/readme-smoke/environments -t /tmp/kube-build-app-readme-smoke
+kube-build-app build -e dev -R fixtures/readme-smoke/environments --output-dir /tmp/kube-build-app-readme-smoke
 ```
 
 Parity proti Ruby referenci:

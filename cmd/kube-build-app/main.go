@@ -34,10 +34,8 @@ type cliOptions struct {
 	helmEscapeAssets          bool
 	releaseManifests          []string
 	releaseID                 string
-	customerReleaseID         string
 	releaseContextName        string
 	releaseIDEnvName          string
-	customerReleaseIDEnvName  string
 	noReleaseContextConfigMap bool
 	noReleaseContextEnv       bool
 	imageOverrides            []string
@@ -98,7 +96,7 @@ func newRootCommand(info appinfo.Info, opts *cliOptions) *cobra.Command {
 	root.PersistentFlags().StringVar(&opts.namespace, "namespace", "", "override target namespace for generated resources")
 	root.PersistentFlags().StringVarP(&opts.root, "root", "R", "environments", "environments root directory")
 	root.PersistentFlags().StringVarP(&opts.resourcePolicyRoot, "resource-policy-root", "P", "", "external resource policy root directory")
-	root.PersistentFlags().StringVarP(&opts.target, "target", "t", "", "target output directory")
+	root.PersistentFlags().StringVar(&opts.target, "output-dir", "", "output directory for generated manifests")
 	root.PersistentFlags().StringVarP(&opts.profile, "profile", "p", "", "replica profile name")
 	root.PersistentFlags().StringVar(&opts.profilesFile, "profiles-file", "", "replica profiles file path")
 	root.PersistentFlags().BoolVarP(&opts.decryptSecured, "decrypt-secured", "d", false, "enable env.secured.json variables")
@@ -110,11 +108,9 @@ func newRootCommand(info appinfo.Info, opts *cliOptions) *cobra.Command {
 	root.PersistentFlags().BoolVar(&opts.legacyApplyEnv, "legacy-apply-env", false, "resolve legacy {{VAR}} placeholders in generated deployment and external service manifests")
 	root.PersistentFlags().BoolVar(&opts.helmEscapeAssets, "helm-escape-assets", false, "escape remaining {{VAR}} placeholders in text assets")
 	root.PersistentFlags().StringArrayVarP(&opts.releaseManifests, "release-manifest", "r", nil, "release manifest YAML path (v1 or v2); repeatable, later files override earlier files")
-	root.PersistentFlags().StringVar(&opts.releaseID, "release-id", "", "deployment release ID; required with multiple release manifests, inferred from a single manifest")
-	root.PersistentFlags().StringVar(&opts.customerReleaseID, "customer-release-id", "", "customer release ID recorded in deployment metadata and release context")
+	root.PersistentFlags().StringVar(&opts.releaseID, "release-id", "", "ReleaseID; required with multiple release manifests, inferred from a single manifest")
 	root.PersistentFlags().StringVar(&opts.releaseContextName, "release-context-name", "", "stable release context ConfigMap name; defaults to release-context-<sync-set>")
 	root.PersistentFlags().StringVar(&opts.releaseIDEnvName, "release-id-env-name", "RELEASE_ID", "container ENV name for release ID")
-	root.PersistentFlags().StringVar(&opts.customerReleaseIDEnvName, "customer-release-id-env-name", "CUSTOMER_RELEASE_ID", "container ENV name for customer release ID")
 	root.PersistentFlags().BoolVar(&opts.noReleaseContextConfigMap, "no-release-context-configmap", false, "do not generate release context ConfigMap")
 	root.PersistentFlags().BoolVar(&opts.noReleaseContextEnv, "no-release-context-env", false, "do not inject release context ENV references")
 	root.PersistentFlags().StringArrayVar(&opts.imageOverrides, "image", nil, "inject or override image as app/container=image-reference (including public registries); applied after all release manifests; repeatable or comma-separated")
@@ -435,10 +431,8 @@ func toBuildOptions(opts *cliOptions) buildapp.Options {
 		HelmEscapeAssets:               opts.helmEscapeAssets,
 		ReleaseManifests:               append([]string(nil), opts.releaseManifests...),
 		ReleaseID:                      opts.releaseID,
-		CustomerReleaseID:              opts.customerReleaseID,
 		ReleaseContextName:             opts.releaseContextName,
 		ReleaseIDEnvName:               opts.releaseIDEnvName,
-		CustomerReleaseIDEnvName:       opts.customerReleaseIDEnvName,
 		DisableReleaseContextConfigMap: opts.noReleaseContextConfigMap,
 		DisableReleaseContextEnv:       opts.noReleaseContextEnv,
 		ImageOverrides:                 opts.imageOverrides,

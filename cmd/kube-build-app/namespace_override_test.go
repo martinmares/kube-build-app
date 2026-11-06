@@ -14,7 +14,7 @@ func TestCobraBuildNamespaceOverride(t *testing.T) {
 		"build",
 		"-e", "test",
 		"-R", root,
-		"-t", target,
+		"--output-dir", target,
 		"--namespace", "cli-override",
 		"--verbose",
 		"--color", "never",

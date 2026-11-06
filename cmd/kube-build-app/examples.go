@@ -75,13 +75,13 @@ containers:
 `},
 				},
 				shell: `kube-build-app validate -e dev -R environments
-kube-build-app build -e dev -R environments -t deploy/dev`,
+kube-build-app build -e dev -R environments --output-dir deploy/dev`,
 			},
 			{
 				title:       "Build the included smoke fixture",
 				description: "From the source checkout, this exercises defaults, assets, services, and routes without external services.",
 				shell: `kube-build-app validate -e dev -R fixtures/readme-smoke/environments
-kube-build-app build -e dev -R fixtures/readme-smoke/environments -t /tmp/kube-build-app-smoke`,
+kube-build-app build -e dev -R fixtures/readme-smoke/environments --output-dir /tmp/kube-build-app-smoke`,
 			},
 		},
 	},
@@ -168,7 +168,7 @@ containers:
       preset: spring-actuator
       port: 8080
 `}},
-				shell: "kube-build-app build -e dev -R environments -t deploy/dev",
+				shell: "kube-build-app build -e dev -R environments --output-dir deploy/dev",
 			},
 			{
 				title:       "Mount a generated ConfigMap asset",
@@ -201,7 +201,7 @@ containers:
 			{
 				title:       "Use a pre-rendered .env file",
 				description: "An explicit file is the sole variable source; do not combine it with --vars-source or --decrypt-secured.",
-				shell:       "kube-build-app build -e dev -R environments -E /path/to/release.env -t deploy/dev",
+				shell:       "kube-build-app build -e dev -R environments -E /path/to/release.env --output-dir deploy/dev",
 			},
 			{
 				title:       "Download .env variables",
@@ -209,7 +209,7 @@ containers:
 				shell: `kube-build-app build -e dev -R environments \
   --env-url "https://config.example.com/environments/dev/render" \
   --env-url-header "Authorization: Bearer $CONFIG_TOKEN" \
-  -t deploy/dev`,
+  --output-dir deploy/dev`,
 			},
 			{
 				title:       "Use a separate resource policy repository",
@@ -220,7 +220,7 @@ containers:
     memory: {from: "128Mi", to: "512Mi"}
 `}},
 				shell: `kube-build-app validate -e dev -R environments -P resources
-kube-build-app build -e dev -R environments -P resources -t deploy/dev`,
+kube-build-app build -e dev -R environments -P resources --output-dir deploy/dev`,
 			},
 		},
 	},
@@ -241,13 +241,13 @@ images:
     tag: RE_2026.10.03.01
     digest: sha256:0123456789abcdef...
 `}},
-				shell: `kube-build-app build -e dev -R environments -t deploy/dev \
+				shell: `kube-build-app build -e dev -R environments --output-dir deploy/dev \
   --release-manifest release.yml --image-policy strict`,
 			},
 			{
 				title:       "Override one image",
 				description: "The selector is app/container; a direct override has priority over the release manifest.",
-				shell: `kube-build-app build -e dev -R environments -t deploy/dev \
+				shell: `kube-build-app build -e dev -R environments --output-dir deploy/dev \
   --image api/api=registry.example.com/demo/api:hotfix`,
 			},
 		},
@@ -259,22 +259,22 @@ images:
 			{
 				title:       "Render Argo CD metadata",
 				description: "The sync set groups rendered objects. This command only writes local manifests.",
-				shell: `kube-build-app build -e prod -R environments -t deploy/prod \
+				shell: `kube-build-app build -e prod -R environments --output-dir deploy/prod \
   --sync-metadata-profile argocd --sync-set prod`,
 			},
 			{
 				title: "Render kube-deploy-sync metadata",
-				shell: `kube-build-app build -e dev -R environments -t deploy/dev \
+				shell: `kube-build-app build -e dev -R environments --output-dir deploy/dev \
   --sync-metadata-profile kube-deploy-sync --sync-set dev`,
 			},
 			{
 				title:       "Change the output namespace",
 				description: "--namespace takes priority over NAMESPACE from variable sources.",
-				shell:       "kube-build-app build -e dev -R environments -t deploy/dev --namespace demo-preview",
+				shell:       "kube-build-app build -e dev -R environments --output-dir deploy/dev --namespace demo-preview",
 			},
 			{
 				title: "Scale one app to zero for a build",
-				shell: "kube-build-app build -e dev -R environments -t deploy/dev --down worker",
+				shell: "kube-build-app build -e dev -R environments --output-dir deploy/dev --down worker",
 			},
 			{
 				title:       "Choose a replica profile",
@@ -290,7 +290,7 @@ profiles:
     apps:
       api: 1
 `}},
-				shell: "kube-build-app build -e dev -R environments -t deploy/dev -p maintenance",
+				shell: "kube-build-app build -e dev -R environments --output-dir deploy/dev -p maintenance",
 			},
 		},
 	},

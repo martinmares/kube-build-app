@@ -76,7 +76,7 @@ containers:
 func TestCobraBuildImageOverride(t *testing.T) {
 	root := writeCLIEnv(t)
 	target := filepath.Join(t.TempDir(), "target")
-	runCLI(t, "build", "-e", "test", "-R", root, "-t", target, "--image", "api/api=registry.cli/api:2")
+	runCLI(t, "build", "-e", "test", "-R", root, "--output-dir", target, "--image", "api/api=registry.cli/api:2")
 	content, err := os.ReadFile(filepath.Join(target, "deployments", "api-deployment.yml"))
 	if err != nil {
 		t.Fatal(err)
@@ -104,7 +104,7 @@ images:
 		"build",
 		"-e", "test",
 		"-R", root,
-		"-t", target,
+		"--output-dir", target,
 		"--release-manifest", manifest,
 		"--force-image-prefix", "artifactory.example.com/docker-release/",
 		"--force-image-tag", "emergency-1",
@@ -121,7 +121,7 @@ images:
 func TestCobraBuildYAMLIndent(t *testing.T) {
 	root := writeCLIEnv(t)
 	target := filepath.Join(t.TempDir(), "target")
-	runCLI(t, "build", "-e", "test", "-R", root, "-t", target, "--yaml-indent", "4")
+	runCLI(t, "build", "-e", "test", "-R", root, "--output-dir", target, "--yaml-indent", "4")
 	content, err := os.ReadFile(filepath.Join(target, "deployments", "api-deployment.yml"))
 	if err != nil {
 		t.Fatal(err)
@@ -252,7 +252,7 @@ spec:
 		t.Fatalf("imported model does not validate: %s", got)
 	}
 	target := filepath.Join(tempDir, "deploy")
-	runCLI(t, "build", "-e", "test", "-R", root, "-t", target)
+	runCLI(t, "build", "-e", "test", "-R", root, "--output-dir", target)
 	rendered, err := os.ReadFile(filepath.Join(target, "deployments", "api-deployment.yml"))
 	if err != nil {
 		t.Fatal(err)
@@ -739,7 +739,7 @@ profiles:
 		t.Fatalf("scaffolded model does not validate: %s", got)
 	}
 	target := filepath.Join(t.TempDir(), "deploy")
-	runCLI(t, "build", "-e", "dev", "-R", root, "-t", target)
+	runCLI(t, "build", "-e", "dev", "-R", root, "--output-dir", target)
 	deployment, err := os.ReadFile(filepath.Join(target, "deployments", "api-deployment.yml"))
 	if err != nil {
 		t.Fatal(err)
