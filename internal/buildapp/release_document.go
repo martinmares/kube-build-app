@@ -127,7 +127,7 @@ func resolveReleaseID(opts Options) (string, error) {
 		if strings.TrimSpace(path) == "" {
 			return "", errors.New("release manifest path must not be empty")
 		}
-		manifest, err := loadReleaseManifest(path)
+		manifest, err := loadReleaseManifest(path, opts)
 		if err != nil {
 			return "", err
 		}

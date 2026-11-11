@@ -327,7 +327,7 @@ func Inspect(opts Options) (Inspection, error) {
 		defaultsSource = *result.Defaults
 	}
 	for index, path := range appFiles {
-		app, appErr := loadApp(path, defaultsPath, vars)
+		app, appErr := loadApp(path, defaultsPath, vars, opts)
 		if appErr == nil {
 			if app.Kind == "" {
 				app.Kind = "Deployment"
@@ -730,7 +730,7 @@ func inspectImageOverrideOrigins(apps []appModel, opts Options) (map[imageKey]In
 		return nil, err
 	}
 	for _, path := range releaseManifestPaths(opts) {
-		manifest, err := loadReleaseManifest(path)
+		manifest, err := loadReleaseManifest(path, opts)
 		if err != nil {
 			return nil, err
 		}

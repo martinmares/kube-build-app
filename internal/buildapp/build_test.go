@@ -1917,7 +1917,7 @@ images:
 extra_tags: [stable]
 `)
 
-	manifest, err := loadReleaseManifest(path)
+	manifest, err := loadReleaseManifest(path, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2061,7 +2061,7 @@ release_id: release-1
 unexpected: true
 `)
 
-	_, err := loadReleaseManifest(path)
+	_, err := loadReleaseManifest(path, Options{})
 	if err == nil || !strings.Contains(err.Error(), "field unexpected not found") {
 		t.Fatalf("error = %v", err)
 	}
@@ -2083,7 +2083,7 @@ images:
     digest: sha256:second
 `)
 
-	_, err := loadReleaseManifest(path)
+	_, err := loadReleaseManifest(path, Options{})
 	if err == nil || !strings.Contains(err.Error(), `duplicate image selector "api"/"application"`) {
 		t.Fatalf("error = %v", err)
 	}
@@ -2101,7 +2101,7 @@ images:
     platform: linux/arm64
 `)
 
-	_, err := loadReleaseManifest(path)
+	_, err := loadReleaseManifest(path, Options{})
 	if err == nil || !strings.Contains(err.Error(), `platform "linux/arm64" conflicts with manifest platform "linux/amd64"`) {
 		t.Fatalf("error = %v", err)
 	}

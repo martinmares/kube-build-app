@@ -2,12 +2,32 @@
 
 `kube-build-app` builds Kubernetes manifests from an environment repository.
 
+Its standalone web UI selects an existing image release and environment, runs
+the same renderer as the CLI, and shows live render events, CPU/memory summary,
+a generated file tree and YAML previews. Start it after `just build`:
+
+```sh
+./dist/kube-build-app serve --root ./environments --releases-root ./image-releases
+```
+
+Open `http://127.0.0.1:8787/`. Outputs and history stay in `.tmp/build-web` and
+can be downloaded as a ZIP. See [build UI workflow and scope](docs/KUBE_BUILD_APP_WEB_UI.md).
+The UI can also [read and review an image release from a one-off HTTPS URL](docs/KUBE_BUILD_APP_URL_INPUT.cs.md),
+with optional bearer/basic credentials and an expected SHA256. Builds use the
+captured document and retain safe URL/checksum evidence, without saving credentials.
+Builder WebUI also supports a [configured HTTPS release source](docs/KUBE_BUILD_APP_CONFIGURED_SOURCE.cs.md): administrators define the URL/path convention and token file in YAML or `serve` flags; users select a release ID and review the downloaded manifest.
+With `--deployments-root /path/to/deployments`, the UI also reviews Git changes
+and explicitly creates a local deployment commit and `<env>/<release-id>.rN` tag.
+New web builds show input provenance: Git commits, captured file checksums and
+local changes. Source/variable snapshots stay private beside each build.
+CLI builds can enable the same evidence with `--evidence-dir`.
+
 The tool is intentionally small at runtime: it reads declarative environment metadata, app model files and assets, then writes Kubernetes YAML into a target directory. The Ruby implementation is the historical reference; the Go implementation is the productized CLI with a single binary, Cobra-based commands and shell completion.
 
 This repository currently contains three related binaries, but only two are active product surfaces:
 
 ```text
-kube-build-app = build/render Kubernetes manifests
+kube-build-app = CLI and web UI for building Kubernetes manifests
 kube-edit-app  = web editor for environment repositories
 kube-ops-app   = sandbox prototype, not active product direction
 ```

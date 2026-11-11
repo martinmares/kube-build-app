@@ -42,7 +42,7 @@ func applyResourcePolicies(apps []appModel, appFiles []string, opts Options) err
 			continue
 		}
 		policyPath := filepath.Join(policyAppsDir, filepath.Base(appFiles[index]))
-		policy, err := loadResourcePolicy(policyPath)
+		policy, err := loadResourcePolicy(policyPath, opts)
 		if err != nil {
 			return fmt.Errorf("%s: %w", app.Name, err)
 		}
@@ -53,8 +53,8 @@ func applyResourcePolicies(apps []appModel, appFiles []string, opts Options) err
 	return nil
 }
 
-func loadResourcePolicy(path string) (resourcePolicyFile, error) {
-	content, err := os.ReadFile(path)
+func loadResourcePolicy(path string, opts Options) (resourcePolicyFile, error) {
+	content, err := opts.readInput(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return resourcePolicyFile{}, fmt.Errorf("resource policy file not found: %s", path)

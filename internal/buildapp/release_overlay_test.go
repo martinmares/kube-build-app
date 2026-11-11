@@ -113,13 +113,13 @@ images:
     source: {repository: source.example/api, tag: old, digest: 'sha256:target'}
 `
 	writeFile(t, path, valid)
-	m, err := loadReleaseManifest(path)
+	m, err := loadReleaseManifest(path, Options{})
 	if err != nil || m.RegistryBase != "registry.example/team" || m.Images[0].Source.Image != "source.example/api" {
 		t.Fatalf("v2 = %#v, %v", m, err)
 	}
 	for _, bad := range []string{strings.Replace(valid, "repository: registry.example/team/api", "image: registry.example/team/api", 1), strings.Replace(valid, "repository_prefix:", "registry_base:", 1), strings.Replace(valid, "repository: source.example/api", "image: source.example/api", 1), valid + "---\n{}\n", valid + "unknown: true\n"} {
 		writeFile(t, path, bad)
-		if _, err := loadReleaseManifest(path); err == nil {
+		if _, err := loadReleaseManifest(path, Options{}); err == nil {
 			t.Fatalf("accepted invalid v2: %s", bad)
 		}
 	}

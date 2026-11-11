@@ -35,6 +35,11 @@ var releaseContextNamePattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9]
 var releaseContextEnvNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type Options struct {
+	EvidenceDir string
+	// InputOrigins maps staged files to original source paths for provenance.
+	InputOrigins       map[string]string
+	InputURLOrigins    map[string]URLOrigin
+	inputs             *inputRecorder
 	Environment        string
 	Namespace          string
 	Root               string
@@ -75,6 +80,8 @@ type Options struct {
 }
 
 type Result struct {
+	Evidence        *BuildEvidence
+	Summary         ResourceSummaryData
 	Deployments     []string
 	Services        []string
 	Assets          []string
@@ -649,8 +656,10 @@ var cgroupExporterDefaultVars = []envVar{
 	{Name: "CGROUP_EXPORTER_NODE_NAME", FieldPath: "spec.nodeName"},
 }
 
-func Build(opts Options) (Result, error) {
-	if err := validateReleaseLabelValue("customer release ID", opts.ReleaseID); err != nil {
+func Build(opts Options) (Result, error) { return BuildWithObserver(opts, nil) }
+
+func build(opts Options, observe func(BuildEvent)) (Result, error) {
+	if err := validateReleaseLabelValue("Release ID", opts.ReleaseID); err != nil {
 		return Result{}, err
 	}
 	if strings.TrimSpace(opts.Environment) == "" {
@@ -685,7 +694,7 @@ func Build(opts Options) (Result, error) {
 	var releaseContext *releaseContextSpec
 	if releaseID != "" {
 		if strings.TrimSpace(opts.ReleaseContextName) == "" {
-			name, err := releaseContextNameFromDefaults(filepath.Join(appsDir, "_defaults.yml"))
+			name, err := releaseContextNameFromDefaults(filepath.Join(appsDir, "_defaults.yml"), opts)
 			if err != nil {
 				return Result{}, err
 			}
@@ -726,7 +735,7 @@ func Build(opts Options) (Result, error) {
 		}
 	}
 
-	apps, err := loadApps(appFiles, filepath.Join(appsDir, "_defaults.yml"), vars, opts.Environment)
+	apps, err := loadApps(appFiles, filepath.Join(appsDir, "_defaults.yml"), vars, opts.Environment, opts)
 	if err != nil {
 		return Result{}, err
 	}
@@ -748,11 +757,17 @@ func Build(opts Options) (Result, error) {
 		sharedAssetsWave = 999
 	}
 
-	result := Result{}
-	if strings.TrimSpace(opts.Namespace) != "" {
-		result.Events = append(result.Events, BuildEvent{Type: "namespace_override", Name: vars["NAMESPACE"]})
+	result := Result{Summary: resourceSummary(apps, opts.Environment)}
+	emit := func(event BuildEvent) {
+		result.Events = append(result.Events, event)
+		if observe != nil {
+			observe(event)
+		}
 	}
-	result.Events = append(result.Events, BuildEvent{Type: "shared_assets", Count: len(sharedAssets)})
+	if strings.TrimSpace(opts.Namespace) != "" {
+		emit(BuildEvent{Type: "namespace_override", Name: vars["NAMESPACE"]})
+	}
+	emit(BuildEvent{Type: "shared_assets", Count: len(sharedAssets)})
 	if releaseContext != nil && !opts.DisableReleaseContextConfigMap {
 		for _, asset := range sharedAssets {
 			if asset.VolumeName == releaseContext.Name {
@@ -768,7 +783,7 @@ func Build(opts Options) (Result, error) {
 			return Result{}, err
 		}
 		result.Assets = append(result.Assets, outPath)
-		result.Events = append(result.Events, BuildEvent{Type: "asset", Kind: "release-context", Name: releaseContext.Name, Path: outPath})
+		emit(BuildEvent{Type: "asset", Kind: "release-context", Name: releaseContext.Name, Path: outPath})
 	}
 	for _, asset := range sharedAssets {
 		if asset.Kind != "configmap" && asset.Kind != "" {
@@ -779,18 +794,18 @@ func Build(opts Options) (Result, error) {
 			return Result{}, err
 		}
 		result.Assets = append(result.Assets, outPath)
-		result.Events = append(result.Events, BuildEvent{Type: "asset", Kind: "shared", Name: asset.VolumeName, Path: outPath})
+		emit(BuildEvent{Type: "asset", Kind: "shared", Name: asset.VolumeName, Path: outPath})
 	}
 	for _, app := range apps {
 		if app.Ignore {
 			continue
 		}
-		result.Events = append(result.Events, BuildEvent{Type: "app", App: app.Name, Count: len(app.Containers) + len(app.Sidecars)})
+		emit(BuildEvent{Type: "app", App: app.Name, Count: len(app.Containers) + len(app.Sidecars)})
 		for _, container := range app.Containers {
-			result.Events = append(result.Events, BuildEvent{Type: "container", App: app.Name, Container: container.Name, Count: len(container.Assets)})
+			emit(BuildEvent{Type: "container", App: app.Name, Container: container.Name, Count: len(container.Assets)})
 		}
 		for _, sidecar := range app.Sidecars {
-			result.Events = append(result.Events, BuildEvent{Type: "sidecar", App: app.Name, Container: sidecar.Name, Count: len(sidecar.Assets)})
+			emit(BuildEvent{Type: "sidecar", App: app.Name, Container: sidecar.Name, Count: len(sidecar.Assets)})
 		}
 		appSharedAssets := sharedAssets
 		if app.DisableSharedAssets {
@@ -800,7 +815,7 @@ func Build(opts Options) (Result, error) {
 		if err != nil {
 			return Result{}, err
 		}
-		rolloutAnnotations, err := rolloutChecksumAnnotations(app, envDir)
+		rolloutAnnotations, err := rolloutChecksumAnnotations(app, envDir, opts)
 		if err != nil {
 			return Result{}, err
 		}
@@ -810,7 +825,7 @@ func Build(opts Options) (Result, error) {
 				return Result{}, err
 			}
 			result.ServiceAccounts = append(result.ServiceAccounts, outPath)
-			result.Events = append(result.Events, BuildEvent{Type: "serviceaccount", App: app.Name, Name: effectiveServiceAccountName(app), Path: outPath})
+			emit(BuildEvent{Type: "serviceaccount", App: app.Name, Name: effectiveServiceAccountName(app), Path: outPath})
 		}
 		deployment, err := renderDeployment(app, vars["NAMESPACE"], resolvedAssets, appSharedAssets, rolloutAnnotations, releaseID, releaseContext, !opts.DisableReleaseContextEnv)
 		if err != nil {
@@ -821,7 +836,7 @@ func Build(opts Options) (Result, error) {
 			return Result{}, err
 		}
 		result.Deployments = append(result.Deployments, outPath)
-		result.Events = append(result.Events, BuildEvent{Type: "deployment", App: app.Name, Name: app.Name, Path: outPath})
+		emit(BuildEvent{Type: "deployment", App: app.Name, Name: app.Name, Path: outPath})
 
 		if !app.DisableCreateService {
 			services := renderServices(app, vars["NAMESPACE"], opts.Environment)
@@ -831,7 +846,7 @@ func Build(opts Options) (Result, error) {
 					return Result{}, err
 				}
 				result.Services = append(result.Services, outPath)
-				result.Events = append(result.Events, BuildEvent{Type: "service", App: app.Name, Name: service.Name, Path: outPath})
+				emit(BuildEvent{Type: "service", App: app.Name, Name: service.Name, Path: outPath})
 
 				for _, external := range service.Externals {
 					if err := os.MkdirAll(externalServicesDir, 0o755); err != nil {
@@ -842,7 +857,7 @@ func Build(opts Options) (Result, error) {
 						return Result{}, err
 					}
 					result.Externals = append(result.Externals, outPath)
-					result.Events = append(result.Events, BuildEvent{Type: "external", App: app.Name, Name: external.Name, Kind: external.Kind, Path: outPath})
+					emit(BuildEvent{Type: "external", App: app.Name, Name: external.Name, Kind: external.Kind, Path: outPath})
 				}
 			}
 		}
@@ -853,7 +868,7 @@ func Build(opts Options) (Result, error) {
 				return Result{}, err
 			}
 			result.Assets = append(result.Assets, outPath)
-			result.Events = append(result.Events, BuildEvent{Type: "asset", App: app.Name, Container: asset.ContainerName, Name: asset.VolumeName, Path: outPath})
+			emit(BuildEvent{Type: "asset", App: app.Name, Container: asset.ContainerName, Name: asset.VolumeName, Path: outPath})
 		}
 
 		if budget := renderBudget(app, vars["NAMESPACE"]); budget != nil {
@@ -862,7 +877,7 @@ func Build(opts Options) (Result, error) {
 				return Result{}, err
 			}
 			result.Budgets = append(result.Budgets, outPath)
-			result.Events = append(result.Events, BuildEvent{Type: "budget", App: app.Name, Name: app.Name, Path: outPath})
+			emit(BuildEvent{Type: "budget", App: app.Name, Name: app.Name, Path: outPath})
 		}
 
 		if autoscaling := renderAutoscaling(app, vars["NAMESPACE"]); autoscaling != nil {
@@ -871,7 +886,7 @@ func Build(opts Options) (Result, error) {
 				return Result{}, err
 			}
 			result.Autoscaling = append(result.Autoscaling, outPath)
-			result.Events = append(result.Events, BuildEvent{Type: "autoscaling", App: app.Name, Name: app.Name, Path: outPath})
+			emit(BuildEvent{Type: "autoscaling", App: app.Name, Name: app.Name, Path: outPath})
 		}
 	}
 	if opts.LegacyApplyEnv {
@@ -1090,7 +1105,7 @@ func Inventory(opts Options) (map[string]any, error) {
 		if app.Ignore {
 			continue
 		}
-		rolloutAnnotations, err := rolloutChecksumAnnotations(app, envDir)
+		rolloutAnnotations, err := rolloutChecksumAnnotations(app, envDir, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -1167,7 +1182,11 @@ func ResourceSummary(opts Options) (ResourceSummaryData, error) {
 	if err != nil {
 		return ResourceSummaryData{}, err
 	}
-	summary := ResourceSummaryData{Environment: opts.Environment}
+	return resourceSummary(apps, opts.Environment), nil
+}
+
+func resourceSummary(apps []appModel, environment string) ResourceSummaryData {
+	summary := ResourceSummaryData{Environment: environment}
 	for _, app := range apps {
 		if app.Ignore {
 			continue
@@ -1214,7 +1233,7 @@ func ResourceSummary(opts Options) (ResourceSummaryData, error) {
 			})
 		}
 	}
-	return summary, nil
+	return summary
 }
 
 func FormatResourceSummaryText(summary ResourceSummaryData) string {
@@ -1285,7 +1304,7 @@ func loadPreparedApps(opts Options, applyProfileAndDown bool) ([]appModel, strin
 	if err != nil {
 		return nil, "", nil, err
 	}
-	apps, err := loadApps(appFiles, filepath.Join(appsDir, "_defaults.yml"), vars, opts.Environment)
+	apps, err := loadApps(appFiles, filepath.Join(appsDir, "_defaults.yml"), vars, opts.Environment, opts)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -1486,11 +1505,11 @@ func loadVars(envDir string, opts Options) (map[string]string, error) {
 			if !isFile(path) {
 				return nil, fmt.Errorf("vars-source 'dot-env' selected but file not found: %s", path)
 			}
-			if err := loadDotEnvFile(vars, path); err != nil {
+			if err := loadDotEnvFile(vars, path, opts); err != nil {
 				return nil, err
 			}
 		case "env-url":
-			if err := loadDotEnvURL(vars, envURL, envURLHeaders, envURLInsecure); err != nil {
+			if err := loadDotEnvURL(vars, envURL, envURLHeaders, envURLInsecure, opts); err != nil {
 				return nil, err
 			}
 		default:
@@ -1517,6 +1536,15 @@ func loadBuildVars(envDir string, opts Options) (map[string]string, error) {
 	}
 	if namespace := strings.TrimSpace(opts.Namespace); namespace != "" {
 		vars["NAMESPACE"] = namespace
+	}
+	if opts.inputs != nil {
+		raw, err := json.Marshal(vars)
+		if err != nil {
+			return nil, err
+		}
+		if err := opts.inputs.capturePrivate("resolved-variables", raw); err != nil {
+			return nil, err
+		}
 	}
 	return vars, nil
 }
@@ -1584,10 +1612,10 @@ func effectiveVarsSources(opts Options) ([]string, string, string, []string, boo
 }
 
 func loadEnvJSONFile(vars map[string]string, path string, secured bool, opts Options) error {
-	if !isFile(path) {
+	if !opts.inputFileExists(path) {
 		return nil
 	}
-	content, err := os.ReadFile(path)
+	content, err := opts.readInput(path)
 	if err != nil {
 		return err
 	}
@@ -1617,6 +1645,14 @@ func loadEnvJSONFile(vars map[string]string, path string, secured bool, opts Opt
 }
 
 func decryptEnvJSONFile(path string, opts Options) ([]byte, error) {
+	if opts.inputs != nil {
+		captured, cleanup, err := opts.inputs.decryptionInput(path)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+		path = captured
+	}
 	bin := encjsonBinForFile(path, opts)
 	args := []string{"decrypt"}
 	keydir := strings.TrimSpace(opts.EncjsonKeydir)
@@ -1698,8 +1734,8 @@ func detectEncjsonAPI(path string) string {
 	}
 }
 
-func loadDotEnvFile(vars map[string]string, path string) error {
-	content, err := os.ReadFile(path)
+func loadDotEnvFile(vars map[string]string, path string, opts Options) error {
+	content, err := opts.readInput(path)
 	if err != nil {
 		return err
 	}
@@ -1707,7 +1743,7 @@ func loadDotEnvFile(vars map[string]string, path string) error {
 	return nil
 }
 
-func loadDotEnvURL(vars map[string]string, rawURL string, headers []string, insecure bool) error {
+func loadDotEnvURL(vars map[string]string, rawURL string, headers []string, insecure bool, opts Options) error {
 	request, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
 		return fmt.Errorf("env url request: %w", err)
@@ -1738,6 +1774,11 @@ func loadDotEnvURL(vars map[string]string, rawURL string, headers []string, inse
 			return fmt.Errorf("env url fetch %s failed: HTTP %d: %s", rawURL, response.StatusCode, body)
 		}
 		return fmt.Errorf("env url fetch %s failed: HTTP %d", rawURL, response.StatusCode)
+	}
+	if opts.inputs != nil {
+		if err := opts.inputs.capturePrivate("remote-variables", content); err != nil {
+			return err
+		}
 	}
 	loadDotEnvContent(vars, string(content))
 	return nil
@@ -1816,10 +1857,10 @@ func loadVarsLegacy(envDir string) (map[string]string, error) {
 	return vars, nil
 }
 
-func loadApps(appFiles []string, defaultsPath string, vars map[string]string, environment string) ([]appModel, error) {
+func loadApps(appFiles []string, defaultsPath string, vars map[string]string, environment string, opts Options) ([]appModel, error) {
 	apps := make([]appModel, 0, len(appFiles))
 	for _, appFile := range appFiles {
-		app, err := loadApp(appFile, defaultsPath, vars)
+		app, err := loadApp(appFile, defaultsPath, vars, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -2567,11 +2608,11 @@ func applyReplicaProfile(apps []appModel, envDir string, opts Options) error {
 	if path == "" {
 		path = filepath.Join(envDir, "replica-profiles.yml")
 	}
-	if !isFile(path) {
+	if !opts.inputFileExists(path) {
 		return nil
 	}
 
-	content, err := os.ReadFile(path)
+	content, err := opts.readInput(path)
 	if err != nil {
 		return err
 	}
@@ -2653,7 +2694,7 @@ func applyImageOverrides(apps []appModel, opts Options) error {
 	}
 	images := map[imageKey]string{}
 	for _, path := range releaseManifestPaths(opts) {
-		manifest, err := loadReleaseManifest(path)
+		manifest, err := loadReleaseManifest(path, opts)
 		if err != nil {
 			return err
 		}
@@ -2858,33 +2899,51 @@ type releaseSource struct {
 	Digest string `yaml:"digest"`
 }
 
-func loadReleaseManifest(path string) (releaseManifest, error) {
-	if !isFile(path) {
+func loadReleaseManifest(path string, opts Options) (releaseManifest, error) {
+	if !opts.inputFileExists(path) {
 		return releaseManifest{}, fmt.Errorf("release manifest not found: %s", path)
 	}
-	content, err := os.ReadFile(path)
+	content, err := opts.readInput(path)
 	if err != nil {
 		return releaseManifest{}, err
 	}
-	content, err = normalizeReleaseDocument(content)
+	manifest, err := parseReleaseManifest(content)
 	if err != nil {
 		return releaseManifest{}, fmt.Errorf("%s: %w", path, err)
+	}
+	return manifest, nil
+}
+
+// ReleaseMetadata validates the complete native document using the renderer's rules.
+func ReleaseMetadata(content []byte) (string, int, error) {
+	manifest, err := parseReleaseManifest(content)
+	if err != nil {
+		return "", 0, err
+	}
+	return manifest.ReleaseID, len(manifest.Images), nil
+}
+
+func parseReleaseManifest(content []byte) (releaseManifest, error) {
+	var err error
+	content, err = normalizeReleaseDocument(content)
+	if err != nil {
+		return releaseManifest{}, err
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(content))
 	decoder.KnownFields(true)
 	var manifest releaseManifest
 	if err := decoder.Decode(&manifest); err != nil {
-		return releaseManifest{}, fmt.Errorf("%s: %w", path, err)
+		return releaseManifest{}, err
 	}
 	var extra any
 	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
 		if err == nil {
-			return releaseManifest{}, fmt.Errorf("%s: multiple YAML documents are not allowed", path)
+			return releaseManifest{}, errors.New("multiple YAML documents are not allowed")
 		}
-		return releaseManifest{}, fmt.Errorf("%s: %w", path, err)
+		return releaseManifest{}, err
 	}
 	if err := manifest.normalizeAndValidate(); err != nil {
-		return releaseManifest{}, fmt.Errorf("%s: %w", path, err)
+		return releaseManifest{}, err
 	}
 	return manifest, nil
 }
@@ -3165,12 +3224,12 @@ func listAppFiles(appsDir string) ([]string, error) {
 	return files, nil
 }
 
-func loadApp(path string, defaultsPath string, vars map[string]string) (appModel, error) {
-	raw, err := os.ReadFile(path)
+func loadApp(path string, defaultsPath string, vars map[string]string, opts Options) (appModel, error) {
+	raw, err := opts.readInput(path)
 	if err != nil {
 		return appModel{}, err
 	}
-	defaultsRaw, err := readOptionalFile(defaultsPath)
+	defaultsRaw, err := readOptionalFile(defaultsPath, opts)
 	if err != nil {
 		return appModel{}, err
 	}
@@ -3280,11 +3339,11 @@ func variablesToMap(items []variable) map[string]string {
 	return vars
 }
 
-func readOptionalFile(path string) (string, error) {
-	if strings.TrimSpace(path) == "" || !isFile(path) {
+func readOptionalFile(path string, opts Options) (string, error) {
+	if strings.TrimSpace(path) == "" || !opts.inputFileExists(path) {
 		return "", nil
 	}
-	content, err := os.ReadFile(path)
+	content, err := opts.readInput(path)
 	if err != nil {
 		return "", err
 	}
@@ -4113,8 +4172,8 @@ func newReleaseContextSpec(opts Options, releaseID string) (*releaseContextSpec,
 	return &releaseContextSpec{Name: name, ReleaseID: releaseID, ReleaseIDEnvName: releaseEnv}, nil
 }
 
-func releaseContextNameFromDefaults(path string) (string, error) {
-	content, err := readOptionalFile(path)
+func releaseContextNameFromDefaults(path string, opts Options) (string, error) {
+	content, err := readOptionalFile(path, opts)
 	if err != nil {
 		return "", err
 	}
@@ -4443,7 +4502,7 @@ func mergeRawMap(target map[string]any, raw map[string]any) {
 	}
 }
 
-func rolloutChecksumAnnotations(app appModel, envDir string) (map[string]string, error) {
+func rolloutChecksumAnnotations(app appModel, envDir string, opts Options) (map[string]string, error) {
 	if len(app.RolloutOn.Checksums) == 0 {
 		return nil, nil
 	}
@@ -4468,7 +4527,7 @@ func rolloutChecksumAnnotations(app appModel, envDir string) (map[string]string,
 		hash := sha256.New()
 		for _, relative := range files {
 			fullPath := filepath.Join(envDir, relative)
-			content, err := os.ReadFile(fullPath)
+			content, err := opts.readInput(fullPath)
 			if err != nil {
 				return nil, fmt.Errorf("rollout checksum file not found for %q: %s", group, relative)
 			}
@@ -5207,10 +5266,10 @@ func resolveAssets(app appModel, envDir string, vars map[string]string, opts Opt
 
 func loadSharedAssets(envDir string, vars map[string]string, opts Options) ([]resolvedAsset, error) {
 	path := filepath.Join(envDir, "shared.assets.yml")
-	if !isFile(path) {
+	if !opts.inputFileExists(path) {
 		return nil, nil
 	}
-	content, err := os.ReadFile(path)
+	content, err := opts.readInput(path)
 	if err != nil {
 		return nil, err
 	}
@@ -5343,7 +5402,7 @@ func resolveAsset(appName string, containerName string, spec assetSpec, envDir s
 		return resolvedAsset{}, errors.New("asset file is required")
 	}
 	sourcePath := filepath.Join(envDir, spec.File)
-	content, err := os.ReadFile(sourcePath)
+	content, err := opts.readInput(sourcePath)
 	if err != nil {
 		return resolvedAsset{}, err
 	}

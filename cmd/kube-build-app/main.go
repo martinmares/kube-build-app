@@ -21,6 +21,7 @@ type cliOptions struct {
 	root                      string
 	resourcePolicyRoot        string
 	target                    string
+	evidenceDir               string
 	profile                   string
 	profilesFile              string
 	inventory                 bool
@@ -97,6 +98,7 @@ func newRootCommand(info appinfo.Info, opts *cliOptions) *cobra.Command {
 	root.PersistentFlags().StringVarP(&opts.root, "root", "R", "environments", "environments root directory")
 	root.PersistentFlags().StringVarP(&opts.resourcePolicyRoot, "resource-policy-root", "P", "", "external resource policy root directory")
 	root.PersistentFlags().StringVar(&opts.target, "output-dir", "", "output directory for generated manifests")
+	root.PersistentFlags().StringVar(&opts.evidenceDir, "evidence-dir", "", "new private directory for exact build inputs and provenance (outside inputs/output)")
 	root.PersistentFlags().StringVarP(&opts.profile, "profile", "p", "", "replica profile name")
 	root.PersistentFlags().StringVar(&opts.profilesFile, "profiles-file", "", "replica profiles file path")
 	root.PersistentFlags().BoolVarP(&opts.decryptSecured, "decrypt-secured", "d", false, "enable env.secured.json variables")
@@ -133,6 +135,7 @@ func newRootCommand(info appinfo.Info, opts *cliOptions) *cobra.Command {
 	root.Flags().StringVar(&opts.summaryFormat, "summary-format", "text", "summary output format: text or json")
 
 	root.AddCommand(newBuildCommand(opts))
+	root.AddCommand(newServeCommand(info, opts))
 	root.AddCommand(newValidateCommand(opts))
 	root.AddCommand(newSummaryCommand(opts))
 	root.AddCommand(newInventoryCommand(opts))
@@ -297,6 +300,9 @@ func runBuild(cmd *cobra.Command, opts *cliOptions) error {
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "Generated %d deployment(s)\n", len(result.Deployments))
 	fmt.Fprintf(cmd.OutOrStdout(), "Output: %s\n", effectiveTargetDir(opts))
+	if result.Evidence != nil {
+		fmt.Fprintf(cmd.OutOrStdout(), "Evidence: %s\n", opts.evidenceDir)
+	}
 	return nil
 }
 
@@ -413,6 +419,7 @@ func writeFileNoClobber(path string, content []byte, force bool) error {
 
 func toBuildOptions(opts *cliOptions) buildapp.Options {
 	return buildapp.Options{
+		EvidenceDir:                    opts.evidenceDir,
 		Environment:                    opts.envName,
 		Namespace:                      opts.namespace,
 		Root:                           opts.root,

@@ -21,7 +21,7 @@ func TestLoadReleaseManifestHeaderCompatibility(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "release.yml")
 			writeFile(t, path, tc.header+body)
-			manifest, err := loadReleaseManifest(path)
+			manifest, err := loadReleaseManifest(path, Options{})
 			if !tc.valid {
 				if err == nil || !strings.Contains(err.Error(), "unsupported release format") {
 					t.Fatalf("expected unsupported header: %v", err)

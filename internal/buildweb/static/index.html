@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en" data-bs-theme="light">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Kube Build App</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/tabler.min.css"><link rel="stylesheet" href="/static/build.css">
+  <script>const savedTheme=localStorage.getItem('theme')||'auto';document.documentElement.dataset.bsTheme=savedTheme==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):savedTheme;</script>
+  <script src="/static/build.js" defer></script>
+</head>
+<body class="antialiased">
+<div class="page">
+  <header class="navbar d-print-none"><div class="container-xl d-flex justify-content-between gap-3">
+    <a class="navbar-brand navbar-brand-autodark fw-bold" href="/">Kube Build App</a>
+    <div class="d-flex align-items-center gap-3"><span class="text-secondary small">Manifest generator <span id="version"></span></span><select id="theme" class="form-select form-select-sm" aria-label="Color theme"><option value="auto">Auto theme</option><option value="light">Light</option><option value="dark">Dark</option></select></div>
+  </div></header>
+  <main class="page-wrapper"><div class="container-xl py-4">
+    <div class="mb-4"><h1 class="page-title mb-2">Build deployment manifests</h1><p class="text-secondary mb-0">Choose an environment and an image release. Review the generated YAML and resources before publishing.</p></div>
+    <div id="error" class="alert alert-danger" role="alert" hidden></div>
+    <div id="warnings" class="alert alert-warning" hidden></div>
+    <div class="workspace">
+      <aside>
+        <section class="card card-body mb-3">
+          <h2 class="h3 mb-3">Build inputs</h2>
+          <form id="build-form" class="d-flex flex-column gap-3">
+            <label class="form-label mb-0">Environment<select required id="environment" class="form-select mt-1"></select></label>
+            <label class="form-label mb-0">Release source<select id="release-source" class="form-select mt-1"><option value="local">Local files</option><option value="url">Read from URL</option></select></label>
+            <fieldset id="local-release-fields"><div class="d-flex flex-column gap-3">
+            <label class="form-label mb-0">Find release<input id="release-filter" class="form-control mt-1" type="search" placeholder="Release ID or registry…"></label>
+            <label class="form-label mb-0">Image release<select required id="release" class="form-select release-picker mt-1" size="6"></select></label>
+            </div></fieldset>
+            <fieldset id="configured-release-fields" hidden disabled><div class="d-flex flex-column gap-3">
+              <label class="form-label mb-0">Release ID<input id="configured-release-id" class="form-control mt-1" autocomplete="off" spellcheck="false"></label>
+              <div id="configured-variables" class="d-flex flex-column gap-3"></div>
+              <label id="configured-checksum-field" class="form-label mb-0">Expected SHA256<input id="configured-sha256" class="form-control mt-1" maxlength="64" autocomplete="off" spellcheck="false"></label>
+              <p class="form-hint mb-0">The server supplies the location and credentials. Review the downloaded manifest before building.</p>
+              <button id="read-configured" type="button" class="btn btn-outline-primary">Read and review manifest</button>
+            </div></fieldset>
+            <fieldset id="url-release-fields" hidden disabled>
+              <div class="d-flex flex-column gap-3">
+                <label class="form-label mb-0">Manifest URL<input id="manifest-url" type="url" class="form-control mt-1" placeholder="https://artifacts.example.com/release.yaml" autocomplete="off" spellcheck="false"></label>
+                <details><summary>Authentication and checksum</summary><div class="d-flex flex-column gap-2 mt-2">
+                  <label class="form-label mb-0">Authentication<select id="url-auth" class="form-select"><option value="none">No authentication</option><option value="bearer">Bearer token</option><option value="basic">Username and password</option></select></label>
+                  <label id="url-token-field" class="form-label mb-0" hidden>Token<input id="url-token" type="password" class="form-control" autocomplete="off"></label>
+                  <div id="url-basic-fields" hidden><label class="form-label">Username<input id="url-username" class="form-control" autocomplete="off"></label><label class="form-label mb-0">Password<input id="url-password" type="password" class="form-control" autocomplete="off"></label></div>
+                  <label class="form-label mb-0">Expected SHA256 (optional)<input id="url-sha256" class="form-control" maxlength="64" autocomplete="off" spellcheck="false"></label>
+                </div></details>
+                <button id="read-url" type="button" class="btn btn-outline-primary">Read and review manifest</button>
+              </div>
+            </fieldset>
+            <div id="release-detail" class="text-secondary small text-break"></div>
+            <button id="build-button" class="btn btn-primary" type="submit">Build manifests</button>
+          </form>
+          <p class="form-hint mt-3 mb-0">Builds use a private output directory. Publishing to Git and deployment are separate steps.</p>
+          <details class="mt-3"><summary class="text-secondary">Server inputs</summary><dl class="small mt-2"><dt>Environment repository</dt><dd id="root" class="text-break"></dd><dt>Resource policy</dt><dd id="policy" class="text-break"></dd></dl><pre id="server-context" class="small build-log p-2"></pre></details>
+        </section>
+        <section class="card card-body"><h2 class="h3 mb-2">Recent builds</h2><div id="history" class="list-group list-group-flush"></div></section>
+      </aside>
+      <div class="result-pane">
+        <section id="url-preview" class="card mb-3" hidden><div class="card-header"><h2 id="url-preview-title" class="card-title">Release manifest preview</h2></div><div class="card-body"><p id="url-preview-source" class="text-secondary text-break small"></p><details open><summary>Downloaded YAML</summary><pre id="url-content" class="yaml-preview small p-3 mt-2 mb-0"></pre></details></div></section>
+        <section id="empty" class="card card-body empty-state"><div class="text-secondary"><h2 class="h3">Ready to build</h2><p class="mb-0">Select a release and environment on the left. Build progress, resource totals and generated files will appear here.</p></div></section>
+        <section id="result" hidden>
+          <div class="card card-body mb-3">
+            <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap"><div><h2 id="run-title" class="h3 mb-2"></h2><div class="d-flex align-items-center gap-2"><span id="spinner" class="spinner-border spinner-border-sm text-primary" role="status" aria-label="Build in progress" hidden></span><span id="status" class="badge"></span><span id="run-time" class="text-secondary small"></span></div></div><a id="download" class="btn btn-outline-primary" hidden>Download YAML ZIP</a></div>
+            <p id="manifest-path" class="text-secondary small text-break mt-3 mb-0"></p>
+            <details class="mt-3"><summary>Recorded build inputs</summary><pre id="run-inputs" class="build-log p-3 mt-2 mb-0"></pre></details>
+            <div id="run-error" class="alert alert-danger mt-3 mb-0" hidden></div>
+            <details id="progress-details" class="mt-3" open><summary>Build log</summary><pre id="log" class="build-log p-3 mt-2 mb-0" aria-live="polite"></pre></details>
+          </div>
+          <section id="summary" class="card mb-3" hidden>
+            <div class="card-header"><h3 class="card-title">Resource summary</h3></div>
+            <div class="card-body"><div id="totals" class="totals mb-3"></div><div class="table-responsive"><table class="table table-vcenter mb-0"><thead><tr><th>Application / container</th><th>Replicas</th><th>CPU request / limit</th><th>Memory request / limit</th></tr></thead><tbody id="resource-rows"></tbody></table></div><p class="form-hint mt-2 mb-0">Totals include replica counts. Per-container values are shown in the table.</p></div>
+          </section>
+          <section id="evidence" class="card mb-3" hidden>
+            <div class="card-header"><h3 class="card-title">Input provenance</h3></div>
+            <div class="card-body">
+              <p id="evidence-summary" class="mb-2"></p>
+              <p id="evidence-changed" class="text-warning" hidden>Repository HEAD changed during this build. Captured snapshots identify the exact bytes read.</p>
+              <details><summary>Repositories and file checksums</summary>
+                <ul id="evidence-repositories" class="mt-3 text-break"></ul>
+                <div class="table-responsive provenance-table"><table class="table table-vcenter"><thead><tr><th>Input</th><th>Against commit</th><th>SHA-256</th></tr></thead><tbody id="evidence-files"></tbody></table></div>
+                <p class="form-hint">Source bytes and resolved variables are retained privately with this build. The deployment record contains metadata and checksums.</p>
+                <p class="form-hint text-break mb-0">Builder executable: <code id="evidence-builder"></code></p>
+              </details>
+            </div>
+          </section>
+          <section id="artifacts" class="card" hidden><div class="card-header"><h3 class="card-title">Generated files</h3></div><div class="card-body artifacts"><nav aria-label="Generated file tree"><input id="file-filter" class="form-control mb-2" type="search" placeholder="Filter files…" aria-label="Filter generated files"><div id="files" class="file-tree"></div></nav><div class="file-preview"><div class="d-flex align-items-center justify-content-between gap-2 mb-2"><strong id="file-name" class="text-break">Select a file</strong><button id="copy-file" class="btn btn-sm btn-outline-secondary" type="button" disabled>Copy</button></div><pre id="file-content" class="yaml-preview p-3 mb-0" tabindex="0"></pre></div></div></section>
+          <section id="publication" class="card mt-3" hidden>
+            <div class="card-header"><h3 class="card-title">Publish to deployment Git</h3></div>
+            <div class="card-body">
+              <p id="publication-target" class="text-secondary text-break"></p>
+              <button id="review-publication" type="button" class="btn btn-outline-primary">Review Git changes</button>
+              <div id="publication-review" class="mt-3" hidden>
+                <p id="publication-description" class="text-break"></p>
+                <pre id="publication-summary" class="build-log p-3"></pre>
+                <details class="mb-3"><summary>Full diff (including build evidence)</summary><pre id="publication-diff" class="yaml-preview p-3 mt-2"></pre></details>
+                <p class="form-hint">Replaces this environment's generated files, including deletions. Creates a local commit and an immutable tag. Push and cluster deployment remain separate.</p>
+                <button id="confirm-publication" type="button" class="btn btn-primary">Commit and tag locally</button>
+              </div>
+              <div id="publication-result" class="alert alert-success mt-3 mb-0 text-break" role="status" hidden></div>
+              <div id="publication-error" class="alert alert-danger mt-3 mb-0" role="alert" hidden></div>
+            </div>
+          </section>
+        </section>
+      </div>
+    </div>
+  </div></main>
+</div>
+</body></html>
