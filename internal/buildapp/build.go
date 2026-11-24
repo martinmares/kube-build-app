@@ -839,10 +839,14 @@ func build(opts Options, observe func(BuildEvent)) (Result, error) {
 		emit(BuildEvent{Type: "deployment", App: app.Name, Name: app.Name, Path: outPath})
 
 		if !app.DisableCreateService {
+			serviceOrder := 300
+			if strings.TrimSpace(opts.SyncProfile) == "kube-deploy-sync" {
+				serviceOrder = 150
+			}
 			services := renderServices(app, vars["NAMESPACE"], opts.Environment)
 			for _, service := range services {
 				outPath := filepath.Join(servicesDir, service.Name+"-service.yml")
-				if err := writeRenderedObject(outPath, service.Object, opts, syncMetadataSpec{ID: syncObjectID(opts, "Service", vars["NAMESPACE"], service.Name), Order: 300}); err != nil {
+				if err := writeRenderedObject(outPath, service.Object, opts, syncMetadataSpec{ID: syncObjectID(opts, "Service", vars["NAMESPACE"], service.Name), Order: serviceOrder}); err != nil {
 					return Result{}, err
 				}
 				result.Services = append(result.Services, outPath)

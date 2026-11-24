@@ -3708,7 +3708,7 @@ containers:
 	}
 
 	service := loadYAML(t, filepath.Join(target, "services", "api-service.yml"))
-	assertSyncMetadata(t, service, "test/Service/nac-test/api", "300", "kube-deploy-sync")
+	assertSyncMetadata(t, service, "test/Service/nac-test/api", "150", "kube-deploy-sync")
 
 	if len(result.Assets) != 1 {
 		t.Fatalf("len(assets) = %d, want 1", len(result.Assets))
