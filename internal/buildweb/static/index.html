@@ -33,7 +33,7 @@
               <label class="form-label mb-0">Release ID<input id="configured-release-id" class="form-control mt-1" autocomplete="off" spellcheck="false"></label>
               <div id="configured-variables" class="d-flex flex-column gap-3"></div>
               <label id="configured-checksum-field" class="form-label mb-0">Expected SHA256<input id="configured-sha256" class="form-control mt-1" maxlength="64" autocomplete="off" spellcheck="false"></label>
-              <p class="form-hint mb-0">The server supplies the location and credentials. Review the downloaded manifest before building.</p>
+              <p class="form-hint mb-0">The server supplies the source location and any required credentials. Review the captured manifest before building.</p>
               <button id="read-configured" type="button" class="btn btn-outline-primary">Read and review manifest</button>
             </div></fieldset>
             <fieldset id="url-release-fields" hidden disabled>
@@ -49,6 +49,7 @@
               </div>
             </fieldset>
             <div id="release-detail" class="text-secondary small text-break"></div>
+            <div id="source-refresh-status" class="small text-secondary" role="status" hidden></div>
             <button id="build-button" class="btn btn-primary" type="submit">Build manifests</button>
           </form>
           <p class="form-hint mt-3 mb-0">Builds use a private output directory. Publishing to Git and deployment are separate steps.</p>
@@ -57,7 +58,7 @@
         <section class="card card-body"><h2 class="h3 mb-2">Recent builds</h2><div id="history" class="list-group list-group-flush"></div></section>
       </aside>
       <div class="result-pane">
-        <section id="url-preview" class="card mb-3" hidden><div class="card-header"><h2 id="url-preview-title" class="card-title">Release manifest preview</h2></div><div class="card-body"><p id="url-preview-source" class="text-secondary text-break small"></p><details open><summary>Downloaded YAML</summary><pre id="url-content" class="yaml-preview small p-3 mt-2 mb-0"></pre></details></div></section>
+        <section id="url-preview" class="card mb-3" hidden><div class="card-header"><h2 id="url-preview-title" class="card-title">Release manifest preview</h2></div><div class="card-body"><p id="url-preview-source" class="text-secondary text-break small"></p><details open><summary>Release YAML</summary><pre id="url-content" class="yaml-preview small p-3 mt-2 mb-0"></pre></details></div></section>
         <section id="empty" class="card card-body empty-state"><div class="text-secondary"><h2 class="h3">Ready to build</h2><p class="mb-0">Select a release and environment on the left. Build progress, resource totals and generated files will appear here.</p></div></section>
         <section id="result" hidden>
           <div class="card card-body mb-3">
@@ -85,6 +86,22 @@
             </div>
           </section>
           <section id="artifacts" class="card" hidden><div class="card-header"><h3 class="card-title">Generated files</h3></div><div class="card-body artifacts"><nav aria-label="Generated file tree"><input id="file-filter" class="form-control mb-2" type="search" placeholder="Filter files…" aria-label="Filter generated files"><div id="files" class="file-tree"></div></nav><div class="file-preview"><div class="d-flex align-items-center justify-content-between gap-2 mb-2"><strong id="file-name" class="text-break">Select a file</strong><button id="copy-file" class="btn btn-sm btn-outline-secondary" type="button" disabled>Copy</button></div><pre id="file-content" class="yaml-preview p-3 mb-0" tabindex="0"></pre></div></div></section>
+          <section id="package" class="card mt-3" hidden>
+            <div class="card-header"><h3 class="card-title">Deployment package</h3></div>
+            <div class="card-body">
+              <p class="text-secondary">Prepare a portable ZIP containing the generated manifests, checksums and build input record. Private input snapshots are excluded.</p>
+              <button id="prepare-package" type="button" class="btn btn-outline-primary">Prepare package</button>
+              <div id="package-review" class="mt-3" hidden>
+                <p id="package-summary" class="text-break"></p>
+                <p id="package-checksum" class="small text-secondary text-break"></p>
+                <div class="table-responsive mb-3" style="max-height:18rem;overflow:auto"><table class="table table-vcenter"><thead><tr><th>Manifest</th><th>Bytes</th><th>SHA256</th></tr></thead><tbody id="package-files"></tbody></table></div>
+                <p id="package-destination" class="text-secondary text-break"></p>
+                <div class="d-flex gap-2"><a id="download-package" class="btn btn-outline-primary">Download package ZIP</a><button id="save-package" type="button" class="btn btn-primary" disabled>Save package to directory</button></div>
+              </div>
+              <div id="package-result" class="alert alert-success mt-3 mb-0 text-break" role="status" hidden></div>
+              <div id="package-error" class="alert alert-danger mt-3 mb-0" role="alert" hidden></div>
+            </div>
+          </section>
           <section id="publication" class="card mt-3" hidden>
             <div class="card-header"><h3 class="card-title">Publish to deployment Git</h3></div>
             <div class="card-body">

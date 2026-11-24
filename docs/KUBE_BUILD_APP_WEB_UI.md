@@ -21,7 +21,7 @@ and apply to builds started from this UI. Their safe context is visible in
 **Server inputs**. HTTP header values and fetched variable values are not
 included in that context.
 
-`--releases-root` points to an image-release directory produced by `kube-release`
+`--releases-root` enables local selection from an image-release directory produced by `kube-release`
 (Git is optional):
 
 ```text
@@ -41,9 +41,14 @@ Choose **Read from URL**, optionally supply one-off bearer/basic credentials and
 an expected SHA256, then review the downloaded YAML before building. The exact
 document and safe URL/checksum evidence survive alongside the build; credentials
 are not retained. `--release-ca-file` adds a corporate CA without disabling TLS
-verification. A [configured HTTPS source](KUBE_BUILD_APP_CONFIGURED_SOURCE.cs.md)
-provides server-owned URL/path conventions and a token file, configured via YAML
-or `serve` flags. Configured Git sources and direct CLI URL loading remain future stages.
+verification. A [configured release source](KUBE_BUILD_APP_CONFIGURED_SOURCE.cs.md)
+provides HTTPS URL/path conventions and a token file, or a local Git repository
+with a tag/path convention. Configure it via YAML or `serve` flags. Git reads
+capture the resolved commit and document bytes; working files are not used.
+A configured remote Git source has its own bare copy and optional scheduled fetch.
+The UI shows its refresh status. Omit `--releases-root` to open the configured
+source by default, or the one-off URL form if no source is configured.
+The CLI also supports configured sources with `build --release-source-config`.
 
 ## Workflow
 
@@ -190,3 +195,5 @@ The evidence directory must be new and separate from source and output trees.
 Without `--evidence-dir`, CLI behavior is unchanged. Failed builds retain captured
 input metadata but do not claim successful output hashes. Older web builds keep
 their existing history; they do not retroactively gain input provenance.
+
+Completed builds can [prepare and export a deployment package](KUBE_BUILD_APP_PACKAGE.cs.md). Its reviewed ZIP contains manifests, checksums and public build metadata; directory export is explicit and performs no Git operations. `serve --config` accepts both `artifact_source` and `package_output`.

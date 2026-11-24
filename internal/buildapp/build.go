@@ -39,6 +39,7 @@ type Options struct {
 	// InputOrigins maps staged files to original source paths for provenance.
 	InputOrigins       map[string]string
 	InputURLOrigins    map[string]URLOrigin
+	InputGitOrigins    map[string]GitOrigin
 	inputs             *inputRecorder
 	Environment        string
 	Namespace          string

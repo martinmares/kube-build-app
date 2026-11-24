@@ -62,15 +62,16 @@ evidenci, uloženém výběru nebo výsledné odpovědi. Webová pole s tokenem/
 se po předání požadavku vyprázdní a hodnoty se neukládají do browser storage.
 Čtecí účet ani token se nepřebírá z jiných nastavení builderu.
 
-## Rozsah této etapy
+## Jednorázová URL a konfigurované zdroje
 
-Přímý URL vstup je nyní funkce webUI. CLI dál přijímá místní soubor přes
-`--release-manifest`; používá stejný renderer a dává stejné YAML. Samostatné
-CLI stahování a konfigurovaný Git zdroj builderu zatím zbývají. Stejně tak
-nepřibylo publikování deployment balíčku do Artifactory ani změna Argo/KDS integrace.
+Jednorázové načtení z URL je dostupné ve WebUI. CLI přijímá místní soubor
+přes `--release-manifest` nebo načte release z předem určeného úložiště přes
+`--release-source-config`. Obě rozhraní používají stejný renderer.
 
 Ověření používá syntetické manifesty a místní HTTPS servery s vlastní CA,
 nikoliv konkrétní firemní Artifactory. Stávající omezení lokálního webUI
 ohledně autentizace a trusted proxy zůstávají beze změny.
 
-Pro opakované načítání z předem určeného úložiště je dostupný [konfigurovaný HTTPS zdroj](KUBE_BUILD_APP_CONFIGURED_SOURCE.cs.md). Jeho serverové přístupy se do jednorázové URL volby nepřenášejí. Konfigurované Git zdroje a přímé načítání v CLI zatím zbývají.
+Pro opakované načítání lze [nastavit HTTPS zdroj, připojený Git checkout nebo
+vzdálený Git](KUBE_BUILD_APP_CONFIGURED_SOURCE.cs.md). Jednorázový formulář
+používá pouze přístupy zadané pro konkrétní požadavek.

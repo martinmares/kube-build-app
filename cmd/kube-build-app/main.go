@@ -13,6 +13,7 @@ import (
 
 	"kube-env/internal/appinfo"
 	"kube-env/internal/buildapp"
+	"kube-env/internal/buildweb"
 )
 
 type cliOptions struct {
@@ -34,6 +35,10 @@ type cliOptions struct {
 	legacyApplyEnv            bool
 	helmEscapeAssets          bool
 	releaseManifests          []string
+	releaseSourceConfig       string
+	releaseSourceRevision     string
+	releaseSourceDistribution string
+	releaseSourceChecksum     string
 	releaseID                 string
 	releaseContextName        string
 	releaseIDEnvName          string
@@ -190,13 +195,18 @@ func newAppCommand(opts *cliOptions) *cobra.Command {
 }
 
 func newBuildCommand(opts *cliOptions) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "build",
 		Short: "Build Kubernetes manifests",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runBuild(cmd, opts)
 		},
 	}
+	cmd.Flags().StringVar(&opts.releaseSourceConfig, "release-source-config", "", "YAML with the Git or Artifactory release source")
+	cmd.Flags().StringVar(&opts.releaseSourceRevision, "release-source-revision", "", "revision used in release source templates")
+	cmd.Flags().StringVar(&opts.releaseSourceDistribution, "release-source-distribution", "", "distribution used in release source templates")
+	cmd.Flags().StringVar(&opts.releaseSourceChecksum, "release-source-sha256", "", "expected SHA256 of the captured manifest")
+	return cmd
 }
 
 func newValidateCommand(opts *cliOptions) *cobra.Command {
@@ -289,7 +299,42 @@ func runBuild(cmd *cobra.Command, opts *cliOptions) error {
 	if opts.color != "auto" && opts.color != "always" && opts.color != "never" {
 		return fmt.Errorf("build failed: invalid --color %q, expected auto, always or never", opts.color)
 	}
-	result, err := buildapp.Build(toBuildOptions(opts))
+	options := toBuildOptions(opts)
+	if opts.releaseSourceConfig != "" {
+		if len(options.ReleaseManifests) != 0 || options.ReleaseID == "" {
+			return fmt.Errorf("configured release source requires --release-id and excludes --release-manifest")
+		}
+		config, err := buildweb.LoadServeConfig(opts.releaseSourceConfig)
+		if err != nil {
+			return err
+		}
+		if config.Source == nil {
+			return fmt.Errorf("release source configuration must contain artifact_source")
+		}
+		workDir, err := os.MkdirTemp("", "kube-build-app-source-")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(workDir)
+		raw, gitOrigin, urlOrigin, err := buildweb.CaptureConfiguredRelease(cmd.Context(), *config.Source, workDir,
+			options.ReleaseID, options.Environment, opts.releaseSourceRevision, opts.releaseSourceDistribution, opts.releaseSourceChecksum)
+		if err != nil {
+			return fmt.Errorf("capture release source: %w", err)
+		}
+		manifest := filepath.Join(workDir, "release.yaml")
+		if err := os.WriteFile(manifest, raw, 0600); err != nil {
+			return err
+		}
+		options.ReleaseManifests = []string{manifest}
+		if gitOrigin != nil {
+			options.InputGitOrigins = map[string]buildapp.GitOrigin{manifest: *gitOrigin}
+		} else {
+			options.InputURLOrigins = map[string]buildapp.URLOrigin{manifest: *urlOrigin}
+		}
+	} else if opts.releaseSourceRevision != "" || opts.releaseSourceDistribution != "" || opts.releaseSourceChecksum != "" {
+		return fmt.Errorf("release source options require --release-source-config")
+	}
+	result, err := buildapp.Build(options)
 	if err != nil {
 		return fmt.Errorf("build failed: %w", err)
 	}

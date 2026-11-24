@@ -68,7 +68,11 @@ func (s *Server) configurePublication() error {
 	if err != nil {
 		return err
 	}
-	for _, other := range []string{s.opts.Root, s.opts.ReleasesRoot, s.opts.WorkDir} {
+	inputs := []string{s.opts.Root, s.opts.ReleasesRoot, s.opts.WorkDir}
+	if s.opts.ArtifactSource != nil && s.opts.ArtifactSource.Storage == "git" && s.opts.ArtifactSource.Remote == nil {
+		inputs = append(inputs, s.opts.ArtifactSource.Repository)
+	}
+	for _, other := range inputs {
 		if within(root, other) || within(other, root) {
 			return fmt.Errorf("deployment checkout must be separate from input and work directories")
 		}

@@ -2,8 +2,14 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/pem"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -924,4 +930,62 @@ containers:
 		t.Fatal(err)
 	}
 	return root
+}
+
+func TestBuildFromConfiguredArtifactSource(t *testing.T) {
+	const releaseID = "SWD-42"
+	digest := strings.Repeat("a", 64)
+	manifest := "apiVersion: oci-toolbox/v2\nkind: ImageRelease\nrelease_id: " + releaseID +
+		"\nimages:\n  - id: api\n    app_name: api\n    container_name: api\n    repository: registry.example.invalid/team/api\n    digest: sha256:" + digest + "\n"
+	for _, storage := range []string{"git", "artifactory"} {
+		t.Run(storage, func(t *testing.T) {
+			root := writeCLIEnv(t)
+			work := t.TempDir()
+			sourceFile := filepath.Join(work, "source.yaml")
+			originProperty := "git_origin"
+			if storage == "git" {
+				repo := filepath.Join(work, "source")
+				writeTestFile(t, filepath.Join(repo, releaseID+".yaml"), manifest)
+				for _, args := range [][]string{
+					{"init", "-q"}, {"add", "--", releaseID + ".yaml"},
+					{"-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "Release fixture"},
+					{"tag", releaseID},
+				} {
+					cmd := exec.Command("git", args...)
+					cmd.Dir = repo
+					if raw, err := cmd.CombinedOutput(); err != nil {
+						t.Fatalf("git %v: %v %s", args, err, raw)
+					}
+				}
+				writeTestFile(t, filepath.Join(repo, releaseID+".yaml"), "uncommitted content")
+				writeTestFile(t, sourceFile, "artifact_source:\n  storage: git\n  repository: source\n  tag: '{release_id}'\n  path: '{release_id}.yaml'\n")
+			} else {
+				originProperty = "url_origin"
+				server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path != "/generic/"+releaseID+".yaml" || r.Header.Get("Authorization") != "Bearer test-fixture-token" {
+						w.WriteHeader(http.StatusForbidden)
+						return
+					}
+					_, _ = w.Write([]byte(manifest))
+				}))
+				t.Cleanup(server.Close)
+				cert := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+				writeTestFile(t, filepath.Join(work, "ca.pem"), string(cert))
+				writeTestFile(t, filepath.Join(work, "token"), "test-fixture-token\n")
+				writeTestFile(t, sourceFile, "artifact_source:\n  storage: artifactory\n  base_url: "+server.URL+"/generic\n  path: '{release_id}.yaml'\n  ca_file: ca.pem\n  token_file: token\n")
+			}
+			output := filepath.Join(work, "deploy")
+			evidence := filepath.Join(work, "evidence")
+			runCLI(t, "build", "-e", "test", "-R", root, "--output-dir", output, "--evidence-dir", evidence, "--image-policy", "strict",
+				"--release-source-config", sourceFile, "--release-id", releaseID, "--release-source-sha256", fmt.Sprintf("%x", sha256.Sum256([]byte(manifest))))
+			decl, err := os.ReadFile(filepath.Join(output, "deployments", "api-deployment.yml"))
+			if err != nil || !strings.Contains(string(decl), "registry.example.invalid/team/api@sha256:"+digest) {
+				t.Fatalf("configured release image missing: %v %s", err, decl)
+			}
+			raw, err := os.ReadFile(filepath.Join(evidence, "evidence.json"))
+			if err != nil || !strings.Contains(string(raw), originProperty) || strings.Contains(string(raw), "test-fixture-token") {
+				t.Fatalf("configured release origin missing or credential exposed: %v", err)
+			}
+		})
+	}
 }

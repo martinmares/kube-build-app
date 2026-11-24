@@ -15,7 +15,8 @@ can be downloaded as a ZIP. See [build UI workflow and scope](docs/KUBE_BUILD_AP
 The UI can also [read and review an image release from a one-off HTTPS URL](docs/KUBE_BUILD_APP_URL_INPUT.cs.md),
 with optional bearer/basic credentials and an expected SHA256. Builds use the
 captured document and retain safe URL/checksum evidence, without saving credentials.
-Builder WebUI also supports a [configured HTTPS release source](docs/KUBE_BUILD_APP_CONFIGURED_SOURCE.cs.md): administrators define the URL/path convention and token file in YAML or `serve` flags; users select a release ID and review the downloaded manifest.
+Builder WebUI also supports a [configured release source](docs/KUBE_BUILD_APP_CONFIGURED_SOURCE.cs.md): administrators define an HTTPS URL/path and token file, or a Git source with a tag/path convention, in YAML or `serve` flags. Git can use an attached checkout or an application-owned remote copy with optional scheduled fetch and visible refresh status. Users select a release ID and review the captured manifest, including its resolved Git commit when applicable.
+The UI can also [prepare a deployment package](docs/KUBE_BUILD_APP_PACKAGE.cs.md) with manifest checksums and build evidence, then download it or explicitly publish it to a configured directory or Artifactory repository. Private snapshots are excluded; builds containing Kubernetes Secrets cannot use this package workflow.
 With `--deployments-root /path/to/deployments`, the UI also reviews Git changes
 and explicitly creates a local deployment commit and `<env>/<release-id>.rN` tag.
 New web builds show input provenance: Git commits, captured file checksums and

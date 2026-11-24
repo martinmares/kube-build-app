@@ -182,7 +182,11 @@ func TestArtifactSourceConfigValidation(t *testing.T) {
 	if err := os.WriteFile(filename, []byte("artifact_source:\n  storage: artifactory\n  base_url: https://artifacts.example.invalid/manifests\n  path: release/{release_id}.yaml\n  token_file: private/token\n  ca_file: ca.pem\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	source, err := LoadArtifactSource(filename)
+	config, err := LoadServeConfig(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := config.Source
 	if err != nil || source.Validate() != nil {
 		t.Fatalf("config: %+v %v", source, err)
 	}
@@ -193,7 +197,7 @@ func TestArtifactSourceConfigValidation(t *testing.T) {
 		if err := os.WriteFile(filename, []byte(content), 0600); err != nil {
 			t.Fatal(err)
 		}
-		_, err := LoadArtifactSource(filename)
+		_, err := LoadServeConfig(filename)
 		if err == nil || strings.Contains(err.Error(), "do-not-print-this-value") {
 			t.Fatalf("invalid config: %v", err)
 		}
@@ -205,9 +209,21 @@ func TestArtifactSourceConfigValidation(t *testing.T) {
 			t.Errorf("accepted path: %s", pattern)
 		}
 	}
+	gitConfig := "artifact_source:\n  storage: git\n  repository: ./repo\n  tag: release/{release_id}\n  path: releases/{release_id}.yaml\n"
+	if err := os.WriteFile(filename, []byte(gitConfig), 0600); err != nil {
+		t.Fatal(err)
+	}
+	config, err = LoadServeConfig(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitSource := config.Source
+	if err != nil || gitSource.Repository != filepath.Join(base, "repo") || gitSource.Validate() != nil {
+		t.Fatalf("Git source YAML: %+v %v", gitSource, err)
+	}
 	copy := *source
 	copy.Storage = "git"
 	if copy.Validate() == nil {
-		t.Fatal("claimed Git support")
+		t.Fatal("incomplete Git source accepted")
 	}
 }

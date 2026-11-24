@@ -32,6 +32,7 @@ type Options struct {
 	DeploymentsRoot             string
 	ReleaseCAFile               string
 	ArtifactSource              *ArtifactSource
+	PackageOutput               *PackageOutput
 	Build                       buildapp.Options
 }
 
@@ -50,22 +51,23 @@ type selection struct {
 }
 
 type Run struct {
-	ReleaseSource   *buildapp.URLOrigin           `json:"release_source,omitempty"`
-	Builder         appinfo.Info                  `json:"builder"`
-	Context         buildapp.BuildContext         `json:"context"`
-	EnvironmentRoot string                        `json:"environment_root"`
-	ReleasesRoot    string                        `json:"releases_root"`
-	ID              string                        `json:"id"`
-	Status          string                        `json:"status"`
-	Selection       selection                     `json:"selection"`
-	ReleaseID       string                        `json:"release_id"`
-	CreatedAt       time.Time                     `json:"created_at"`
-	FinishedAt      time.Time                     `json:"finished_at,omitempty"`
-	Error           string                        `json:"error,omitempty"`
-	Events          []buildapp.BuildEvent         `json:"events"`
-	Summary         *buildapp.ResourceSummaryData `json:"summary,omitempty"`
-	Evidence        *buildapp.BuildEvidence       `json:"evidence,omitempty"`
-	Files           []string                      `json:"files"`
+	ReleaseGitSource *buildapp.GitOrigin           `json:"release_git_source,omitempty"`
+	ReleaseSource    *buildapp.URLOrigin           `json:"release_source,omitempty"`
+	Builder          appinfo.Info                  `json:"builder"`
+	Context          buildapp.BuildContext         `json:"context"`
+	EnvironmentRoot  string                        `json:"environment_root"`
+	ReleasesRoot     string                        `json:"releases_root"`
+	ID               string                        `json:"id"`
+	Status           string                        `json:"status"`
+	Selection        selection                     `json:"selection"`
+	ReleaseID        string                        `json:"release_id"`
+	CreatedAt        time.Time                     `json:"created_at"`
+	FinishedAt       time.Time                     `json:"finished_at,omitempty"`
+	Error            string                        `json:"error,omitempty"`
+	Events           []buildapp.BuildEvent         `json:"events"`
+	Summary          *buildapp.ResourceSummaryData `json:"summary,omitempty"`
+	Evidence         *buildapp.BuildEvidence       `json:"evidence,omitempty"`
+	Files            []string                      `json:"files"`
 }
 
 type Server struct {
@@ -78,8 +80,34 @@ type Server struct {
 }
 
 func within(parent, child string) bool {
+	if parent == "" || child == "" {
+		return false
+	}
 	rel, err := filepath.Rel(parent, child)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// Resolve existing ancestors before creating a work directory, including symlinks.
+func resolvedDirectory(directory string) (string, error) {
+	absolute, err := filepath.Abs(directory)
+	if err != nil {
+		return "", err
+	}
+	var tail []string
+	for {
+		resolved, err := filepath.EvalSymlinks(absolute)
+		if err == nil {
+			for i := len(tail) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, tail[i])
+			}
+			return resolved, nil
+		}
+		if !os.IsNotExist(err) || filepath.Dir(absolute) == absolute {
+			return "", err
+		}
+		tail = append(tail, filepath.Base(absolute))
+		absolute = filepath.Dir(absolute)
+	}
 }
 
 func New(opts Options, info appinfo.Info) (*Server, error) {
@@ -88,15 +116,40 @@ func New(opts Options, info appinfo.Info) (*Server, error) {
 		if err := copy.Validate(); err != nil {
 			return nil, err
 		}
+		if copy.Remote != nil {
+			remote := *copy.Remote
+			for _, value := range []*string{&remote.PasswordFile, &remote.CAFile} {
+				if *value != "" {
+					absolute, err := filepath.Abs(*value)
+					if err != nil {
+						return nil, err
+					}
+					*value = absolute
+				}
+			}
+			copy.Remote = &remote
+		}
+		if copy.Storage == "git" && copy.Remote == nil {
+			var err error
+			copy.Repository, err = resolvedDirectory(copy.Repository)
+			if err != nil {
+				return nil, err
+			}
+		}
 		opts.ArtifactSource = &copy
 	}
-	if strings.TrimSpace(opts.Root) == "" || strings.TrimSpace(opts.ReleasesRoot) == "" || strings.TrimSpace(opts.WorkDir) == "" {
-		return nil, fmt.Errorf("environment, release and work directories are required")
+	if strings.TrimSpace(opts.Root) == "" || strings.TrimSpace(opts.WorkDir) == "" {
+		return nil, fmt.Errorf("environment and work directories are required")
 	}
 	if _, err := buildapp.DescribeBuildContext(opts.Build); err != nil {
 		return nil, err
 	}
-	for _, path := range []*string{&opts.Root, &opts.ReleasesRoot} {
+	inputRoots := []*string{&opts.Root}
+	opts.ReleasesRoot = strings.TrimSpace(opts.ReleasesRoot)
+	if opts.ReleasesRoot != "" {
+		inputRoots = append(inputRoots, &opts.ReleasesRoot)
+	}
+	for _, path := range inputRoots {
 		absolute, err := filepath.Abs(*path)
 		if err != nil {
 			return nil, err
@@ -114,12 +167,18 @@ func New(opts Options, info appinfo.Info) (*Server, error) {
 		}
 		*path = resolved
 	}
-	absolute, err := filepath.Abs(opts.WorkDir)
+	absolute, err := resolvedDirectory(opts.WorkDir)
 	if err != nil {
 		return nil, err
 	}
 	if within(opts.Root, absolute) || within(opts.ReleasesRoot, absolute) {
 		return nil, fmt.Errorf("work directory must be outside environment and release repositories")
+	}
+	if opts.ArtifactSource != nil && opts.ArtifactSource.Storage == "git" && opts.ArtifactSource.Remote == nil {
+		repository := opts.ArtifactSource.Repository
+		if within(repository, absolute) || within(absolute, repository) {
+			return nil, fmt.Errorf("work directory must be separate from source Git repository")
+		}
 	}
 	if err := os.MkdirAll(absolute, 0700); err != nil {
 		return nil, err
@@ -131,7 +190,13 @@ func New(opts Options, info appinfo.Info) (*Server, error) {
 	if within(opts.Root, opts.WorkDir) || within(opts.ReleasesRoot, opts.WorkDir) {
 		return nil, fmt.Errorf("work directory must be outside environment and release repositories")
 	}
+	if opts.ArtifactSource != nil && opts.ArtifactSource.Remote != nil {
+		opts.ArtifactSource.Remote.cache = filepath.Join(opts.WorkDir, ".git-readers", opts.ArtifactSource.Remote.identity())
+	}
 	s := &Server{opts: opts, info: info, runs: map[string]*Run{}}
+	if err := s.configurePackageOutput(); err != nil {
+		return nil, err
+	}
 	if err := s.configurePublication(); err != nil {
 		return nil, err
 	}
@@ -221,6 +286,9 @@ func (s *Server) catalog() ([]string, []Release, []string, error) {
 			environments = append(environments, entry.Name())
 		}
 	}
+	if s.opts.ReleasesRoot == "" {
+		return environments, nil, nil, nil
+	}
 	releasesRoot, err := os.OpenRoot(s.opts.ReleasesRoot)
 	if err != nil {
 		return nil, nil, nil, err
@@ -261,12 +329,16 @@ func (s *Server) Handler() http.Handler {
 		w.Write(raw)
 	})
 	mux.HandleFunc("GET /api/catalog", s.handleCatalog)
+	mux.HandleFunc("GET /api/releases/source-status", func(w http.ResponseWriter, r *http.Request) { respond(w, 200, s.sourceRefreshStatus()) })
 	mux.Handle("POST /api/releases/configured", http.NewCrossOriginProtection().Handler(http.HandlerFunc(s.readConfiguredRelease)))
 	mux.Handle("POST /api/releases/url", http.NewCrossOriginProtection().Handler(http.HandlerFunc(s.readURLRelease)))
 	mux.HandleFunc("POST /api/builds", s.start)
 	mux.HandleFunc("GET /api/builds/{id}", s.status)
 	mux.HandleFunc("GET /api/builds/{id}/file/{path...}", s.file)
 	mux.HandleFunc("GET /api/builds/{id}/archive", s.archive)
+	mux.Handle("POST /api/builds/{id}/package-review", http.NewCrossOriginProtection().Handler(http.HandlerFunc(s.reviewPackage)))
+	mux.HandleFunc("GET /api/builds/{id}/packages/{review}/archive", s.packageArchive)
+	mux.Handle("POST /api/builds/{id}/packages/{review}/publish", http.NewCrossOriginProtection().Handler(http.HandlerFunc(s.publishPackage)))
 	mux.HandleFunc("POST /api/builds/{id}/publication-review", s.reviewPublication)
 	mux.HandleFunc("POST /api/builds/{id}/publish/{review}", s.publish)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -309,7 +381,7 @@ func (s *Server) handleCatalog(w http.ResponseWriter, r *http.Request) {
 		history = history[:20]
 	}
 	context, _ := buildapp.DescribeBuildContext(s.opts.Build)
-	respond(w, 200, map[string]any{"environments": environments, "releases": releases, "warnings": warnings, "history": history, "version": s.info.Version, "root": s.opts.Root, "resource_policy_root": s.opts.Build.ResourcePolicyRoot, "context": context, "deployments_root": s.opts.DeploymentsRoot, "artifact_source": s.configuredSourceView()})
+	respond(w, 200, map[string]any{"environments": environments, "releases": releases, "local_releases_enabled": s.opts.ReleasesRoot != "", "warnings": warnings, "history": history, "version": s.info.Version, "root": s.opts.Root, "resource_policy_root": s.opts.Build.ResourcePolicyRoot, "context": context, "deployments_root": s.opts.DeploymentsRoot, "artifact_source": s.configuredSourceView()})
 }
 
 func (s *Server) start(w http.ResponseWriter, r *http.Request) {
@@ -345,6 +417,7 @@ func (s *Server) start(w http.ResponseWriter, r *http.Request) {
 	var selected *Release
 	var raw []byte
 	var source *buildapp.URLOrigin
+	var gitSource *buildapp.GitOrigin
 	if chosen.RemoteRelease != "" {
 		if chosen.Manifest != "" {
 			failure(w, 400, fmt.Errorf("choose a local manifest or a downloaded release, not both"))
@@ -355,7 +428,12 @@ func (s *Server) start(w http.ResponseWriter, r *http.Request) {
 			failure(w, 409, err)
 			return
 		}
-		selected, raw, source = &remote.Release, content, &remote.Origin
+		selected, raw = &remote.Release, content
+		if remote.GitOrigin != nil {
+			gitSource = remote.GitOrigin
+		} else {
+			source = &remote.Origin
+		}
 		if selected.SHA256 != chosen.ManifestSHA256 {
 			failure(w, 409, fmt.Errorf("downloaded release selection changed"))
 			return
@@ -418,7 +496,7 @@ func (s *Server) start(w http.ResponseWriter, r *http.Request) {
 		failure(w, 500, err)
 		return
 	}
-	run := &Run{ReleaseSource: source, Builder: s.info, EnvironmentRoot: s.opts.Root, ReleasesRoot: s.opts.ReleasesRoot, ID: id, Status: "running", Selection: chosen, ReleaseID: selected.ID, CreatedAt: time.Now().UTC()}
+	run := &Run{ReleaseGitSource: gitSource, ReleaseSource: source, Builder: s.info, EnvironmentRoot: s.opts.Root, ReleasesRoot: s.opts.ReleasesRoot, ID: id, Status: "running", Selection: chosen, ReleaseID: selected.ID, CreatedAt: time.Now().UTC()}
 	run.Context, err = buildapp.DescribeBuildContext(s.buildOptions(run))
 	if err != nil {
 		failure(w, 400, err)
@@ -454,6 +532,10 @@ func (s *Server) buildOptions(run *Run) buildapp.Options {
 	opts.ReleaseManifest = ""
 	opts.ReleaseManifests = []string{filepath.Join(directory, "release.yaml")}
 	opts.InputOrigins = map[string]string{opts.ReleaseManifests[0]: filepath.Join(s.opts.ReleasesRoot, run.Selection.Manifest)}
+	if run.ReleaseGitSource != nil {
+		opts.InputOrigins = nil
+		opts.InputGitOrigins = map[string]buildapp.GitOrigin{opts.ReleaseManifests[0]: *run.ReleaseGitSource}
+	}
 	if run.ReleaseSource != nil {
 		opts.InputOrigins = nil
 		opts.InputURLOrigins = map[string]buildapp.URLOrigin{opts.ReleaseManifests[0]: *run.ReleaseSource}

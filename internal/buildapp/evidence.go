@@ -51,6 +51,7 @@ type RepositoryEvidence struct {
 }
 
 type InputEvidence struct {
+	GitOrigin    *GitOrigin `json:"git_origin,omitempty"`
 	URLOrigin    *URLOrigin `json:"url_origin,omitempty"`
 	Path         string     `json:"path"`
 	ReadPath     string     `json:"read_path,omitempty"`
@@ -91,6 +92,7 @@ type inputRecorder struct {
 	private          []PrivateInput
 	origins          map[string]string
 	urlOrigins       map[string]URLOrigin
+	gitOrigins       map[string]GitOrigin
 	executableSHA256 string
 }
 
@@ -157,6 +159,20 @@ func newInputRecorder(opts Options) (*inputRecorder, error) {
 		}
 		urlOrigins[staged] = origin
 	}
+	gitOrigins := map[string]GitOrigin{}
+	for staged, origin := range opts.InputGitOrigins {
+		staged, err := inputPath(staged)
+		if err != nil {
+			return nil, err
+		}
+		if err := origin.Validate(); err != nil {
+			return nil, err
+		}
+		if _, exists := urlOrigins[staged]; exists {
+			return nil, fmt.Errorf("input cannot have both Git and URL origins")
+		}
+		gitOrigins[staged] = origin
+	}
 	for staged, source := range opts.InputOrigins {
 		staged, err := inputPath(staged)
 		if err != nil {
@@ -164,6 +180,9 @@ func newInputRecorder(opts Options) (*inputRecorder, error) {
 		}
 		if _, exists := urlOrigins[staged]; exists {
 			return nil, fmt.Errorf("input cannot have both local and URL origins")
+		}
+		if _, exists := gitOrigins[staged]; exists {
+			return nil, fmt.Errorf("input cannot have both local and captured Git origins")
 		}
 		source, err := inputPath(source)
 		if err != nil {
@@ -184,7 +203,7 @@ func newInputRecorder(opts Options) (*inputRecorder, error) {
 	if err := errors.Join(copyErr, file.Close()); err != nil {
 		return nil, err
 	}
-	return &inputRecorder{directory: directory, files: map[string]capturedInput{}, repositories: map[string]*RepositoryEvidence{}, directories: map[string]string{}, origins: origins, urlOrigins: urlOrigins, executableSHA256: fmt.Sprintf("sha256:%x", hash.Sum(nil))}, nil
+	return &inputRecorder{directory: directory, files: map[string]capturedInput{}, repositories: map[string]*RepositoryEvidence{}, directories: map[string]string{}, origins: origins, urlOrigins: urlOrigins, gitOrigins: gitOrigins, executableSHA256: fmt.Sprintf("sha256:%x", hash.Sum(nil))}, nil
 }
 
 func inputPath(path string) (string, error) {
@@ -281,6 +300,9 @@ func (r *inputRecorder) read(path string) ([]byte, error) {
 	if origin, exists := r.urlOrigins[absolute]; exists {
 		entry.evidence.URLOrigin = &origin
 		entry.evidence.LocalState = "downloaded snapshot"
+	} else if origin, exists := r.gitOrigins[absolute]; exists {
+		entry.evidence.GitOrigin = &origin
+		entry.evidence.LocalState = "captured Git snapshot"
 	} else {
 		entry.evidence.GitRoot, err = r.repository(entry.evidence.Path)
 		if err != nil {
@@ -295,6 +317,11 @@ func (r *inputRecorder) read(path string) ([]byte, error) {
 	if entry.err == nil {
 		if entry.evidence.URLOrigin != nil {
 			if err := entry.evidence.URLOrigin.Verify(entry.raw); err != nil {
+				return nil, err
+			}
+		}
+		if entry.evidence.GitOrigin != nil {
+			if err := entry.evidence.GitOrigin.Verify(entry.raw); err != nil {
 				return nil, err
 			}
 		}

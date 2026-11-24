@@ -29,9 +29,10 @@ type urlRequest struct {
 }
 
 type remoteRelease struct {
-	Token   string             `json:"token"`
-	Release Release            `json:"release"`
-	Origin  buildapp.URLOrigin `json:"origin"`
+	GitOrigin *buildapp.GitOrigin `json:"git_origin,omitempty"`
+	Token     string              `json:"token"`
+	Release   Release             `json:"release"`
+	Origin    buildapp.URLOrigin  `json:"origin"`
 }
 
 func (s *Server) downloadRelease(ctx context.Context, input urlRequest) ([]byte, buildapp.URLOrigin, error) {
@@ -64,28 +65,11 @@ func (s *Server) downloadReleaseWithCA(ctx context.Context, input urlRequest, ca
 	default:
 		return nil, buildapp.URLOrigin{}, fmt.Errorf("unknown URL authentication")
 	}
-	base, ok := http.DefaultTransport.(*http.Transport)
-	if !ok {
-		return nil, buildapp.URLOrigin{}, fmt.Errorf("unsupported HTTP transport")
+	client, err := artifactHTTPClient(caFile)
+	if err != nil {
+		return nil, buildapp.URLOrigin{}, err
 	}
-	transport := base.Clone()
-	defer transport.CloseIdleConnections()
-	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-	if caFile != "" {
-		cert, err := os.ReadFile(caFile)
-		if err != nil {
-			return nil, buildapp.URLOrigin{}, fmt.Errorf("cannot read release CA file")
-		}
-		roots, err := x509.SystemCertPool()
-		if err != nil {
-			roots = x509.NewCertPool()
-		}
-		if !roots.AppendCertsFromPEM(cert) {
-			return nil, buildapp.URLOrigin{}, fmt.Errorf("release CA file has no certificates")
-		}
-		transport.TLSClientConfig.RootCAs = roots
-	}
-	client := &http.Client{Transport: transport, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	defer client.CloseIdleConnections()
 	r, err := http.NewRequestWithContext(ctx, http.MethodGet, input.URL, nil)
 	if err != nil {
 		return nil, buildapp.URLOrigin{}, fmt.Errorf("invalid manifest URL")
@@ -142,9 +126,13 @@ func (s *Server) readURLRelease(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) storeURLRelease(w http.ResponseWriter, raw []byte, origin buildapp.URLOrigin) {
+	s.storeRelease(w, raw, remoteRelease{Origin: origin})
+}
+
+func (s *Server) storeRelease(w http.ResponseWriter, raw []byte, result remoteRelease) {
 	id, count, err := buildapp.ReleaseMetadata(raw)
 	if err != nil || id == "" {
-		failure(w, 400, fmt.Errorf("URL did not return a valid ImageRelease"))
+		failure(w, 400, fmt.Errorf("source did not return a valid ImageRelease"))
 		return
 	}
 	var token [16]byte
@@ -152,7 +140,8 @@ func (s *Server) storeURLRelease(w http.ResponseWriter, raw []byte, origin build
 		failure(w, 500, err)
 		return
 	}
-	result := remoteRelease{Token: hex.EncodeToString(token[:]), Release: Release{ID: id, Images: count, SHA256: "sha256:" + origin.SHA256}, Origin: origin}
+	result.Token = hex.EncodeToString(token[:])
+	result.Release = Release{ID: id, Images: count, SHA256: fmt.Sprintf("sha256:%x", sha256.Sum256(raw))}
 	directory := filepath.Join(s.opts.WorkDir, ".url-releases", result.Token)
 	if err := os.MkdirAll(filepath.Dir(directory), 0700); err != nil {
 		failure(w, 500, err)
@@ -206,12 +195,46 @@ func (s *Server) remoteRelease(token string) (remoteRelease, []byte, error) {
 	if err != nil {
 		return remoteRelease{}, nil, err
 	}
-	if err := result.Origin.Verify(raw); err != nil {
+	checksum := result.Origin.SHA256
+	if result.GitOrigin != nil {
+		if result.Origin != (buildapp.URLOrigin{}) {
+			return remoteRelease{}, nil, fmt.Errorf("ambiguous captured source")
+		}
+		if err := result.GitOrigin.Verify(raw); err != nil {
+			return remoteRelease{}, nil, err
+		}
+		checksum = result.GitOrigin.SHA256
+	} else if err := result.Origin.Verify(raw); err != nil {
 		return remoteRelease{}, nil, err
 	}
 	id, count, err := buildapp.ReleaseMetadata(raw)
-	if err != nil || id != result.Release.ID || count != result.Release.Images || result.Release.SHA256 != "sha256:"+result.Origin.SHA256 {
+	if err != nil || id != result.Release.ID || count != result.Release.Images || result.Release.SHA256 != "sha256:"+checksum {
 		return remoteRelease{}, nil, fmt.Errorf("downloaded release changed; read the URL again")
 	}
 	return result, raw, nil
+}
+
+func artifactHTTPClient(caFile string) (*http.Client, error) {
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("unsupported HTTP transport")
+	}
+	transport := base.Clone()
+	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	if caFile != "" {
+		cert, err := os.ReadFile(caFile)
+		if err != nil {
+			return nil, fmt.Errorf("cannot read HTTP CA file")
+		}
+		roots, err := x509.SystemCertPool()
+		if err != nil {
+			roots = x509.NewCertPool()
+		}
+		if !roots.AppendCertsFromPEM(cert) {
+			return nil, fmt.Errorf("HTTP CA file has no certificates")
+		}
+		transport.TLSClientConfig.RootCAs = roots
+	}
+	client := &http.Client{Transport: transport, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	return client, nil
 }
